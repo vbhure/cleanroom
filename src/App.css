@@ -320,6 +320,74 @@
   line-height: 1.5;
 }
 
+/* The trust dial: a three-position segmented control. */
+.trustDial {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.trustDial legend {
+  padding: 0;
+}
+
+.trustOptions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+}
+
+.trustOption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.trustOption + .trustOption {
+  border-left: 1px solid var(--border-strong);
+}
+
+/*
+ * The radio itself is hidden the accessible way (still focusable, still in
+ * the tab order, still announced) rather than stretched over the label: a
+ * positioned overlay would paint above whatever the rail overflows into on a
+ * narrow screen. The label is the click target.
+ */
+.trustOption input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.trustOption:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.trustOptionActive {
+  background: var(--accent);
+  color: #fff;
+}
+
+.trustOptionActive:last-child {
+  background: var(--risk-gated);
+}
+
 /* --------------------------------------------------------------- report -- */
 
 .report {
@@ -541,6 +609,20 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-top: 2px;
+}
+
+.ledgerBalance {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledgerBalance strong {
+  color: var(--text);
+  font-weight: 660;
 }
 
 .ledgerNote {

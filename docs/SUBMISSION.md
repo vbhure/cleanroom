@@ -11,7 +11,7 @@ marked `«…»`.
 
 ## Tagline
 
-Let ChatGPT analyse your spreadsheet without ever uploading it.
+Give an AI agent real power over data it is never allowed to see.
 
 ## Links
 
@@ -36,14 +36,22 @@ lists, customer records, unreleased financials — all of it goes to a third
 party. Anyone working under a data-egress policy, a client NDA, or basic caution
 simply can't do that, so they get no help at all.
 
-Cleanroom removes the upload.
+The tension is that an agent is only useful if it has real power over the
+data, and the data is only safe if the agent never sees it. Cleanroom is built
+on the resolution: the data cannot go to the agent, so the tools go to the data.
 
 ### What it does
 
-Drop a CSV into the page. It is parsed and held **only in your browser tab**.
-The page then registers eleven WebMCP tools so an agent can profile, query,
-chart and audit that data — while the file itself never leaves your device. A
-running **egress ledger** shows you every character the agent has received.
+Drop a CSV into the page. It is parsed and held **only in your browser tab**,
+on a page that cannot make a network request. The page then registers up to
+eleven WebMCP tools so an agent can profile, query, chart and audit that data —
+while the file itself never leaves your device and never reaches the agent.
+
+The tools *are* the privacy boundary. A three-position **trust level** —
+Sealed, Aggregates, Raw — decides which tools are registered with the browser
+at all, and moving it changes the agent's menu in front of you. A running
+**egress ledger** keeps the balance in one line — *955 B kept local · 1.2 KB
+released* — and itemises every call beneath it.
 
 ### Why WebMCP is the right fit — *WebMCP Leverage*
 
@@ -54,35 +62,45 @@ device.
 
 Four things make the WebMCP usage non-trivial rather than decorative:
 
-1. **The tool surface is the product's security boundary.** `query_dataset`
-   *cannot* return individual rows — its schema requires an aggregate and the
-   engine has no raw projection path. The one tool that can reveal a record,
-   `sample_rows`, is off by default and suspends inside `execute` until a human
-   answers a dialog. The gate is enforced by the application, so no amount of
-   persuasive text inside a dataset can talk past it.
+1. **The tool surface is the product's privacy boundary, and the person sets
+   it.** `query_dataset` *cannot* return individual rows — its schema requires
+   an aggregate and the engine has no raw projection path. The one tool that
+   can reveal a record, `sample_rows`, is not registered at all until the
+   person turns the trust dial to *Raw*, and even then it suspends inside
+   `execute` until a human answers a dialog. At *Sealed*, every tool that
+   computes from the data is withdrawn and the agent is left with three. The
+   gate is enforced by the application, so no amount of persuasive text inside
+   a dataset can talk past it.
 
-2. **Tools appear and disappear with application state, driving `toolchange`.**
-   An empty page offers two tools. Loading a dataset makes seven more appear.
+2. **Capabilities are registered and withdrawn live, driving `toolchange`.**
+   An empty page offers two tools. Loading a dataset makes six more appear.
+   Turning the dial to *Sealed* takes five away; turning it to *Raw* adds one.
    Adding a report block reveals the block-editing tools. The agent's menu
-   always describes what the app can actually do right now.
+   always describes what the app can actually do right now — and what the
+   person is currently willing to let it do.
 
-3. **The guardrails belong to the human and cannot be overridden by an
-   argument.** The k-anonymity threshold is read from the workspace on every
-   call; an agent that passes `minGroupSize` is rejected for an unexpected
-   property.
+3. **The boundary cannot be moved by an argument.** The trust level and the
+   k-anonymity threshold are read from the workspace on every call; an agent
+   that passes `minGroupSize` or `trustLevel` is rejected for an unexpected
+   property. A call that arrives after the dial moved but before the tool was
+   withdrawn is refused by the runner; a raw-row request already waiting on
+   the person is withdrawn with the tool.
 
 4. **Errors are designed for a model to recover from.** A misspelled column
    returns the real column names; a numeric aggregate on a text column returns
-   the list of numeric columns.
+   the list of numeric columns; a withdrawn tool tells the agent to call
+   `list_datasets`, which reports the level in force.
 
 ### What people and agents can do together that was hard before
 
-The human sets the guardrails and supplies data they were never willing to
-upload. The agent explores it, runs statistics it could never do reliably by
-reading a rendered table, and builds a report. Charts and notes it creates land
-on the same canvas the person edits, badged by author, removable by either.
-When the agent needs something genuinely sensitive, the application stops it and
-asks — quoting the agent's own stated reason back to the person.
+The person supplies data they were never willing to upload and decides, with
+one control, how much power the agent has over it. The agent explores it, runs
+statistics it could never do reliably by reading a rendered table, and builds
+a report. Charts and notes it creates land on the same canvas the person edits,
+badged by author, removable by either. When the agent needs something
+genuinely sensitive, the application stops it and asks — quoting the agent's
+own stated reason back to the person — and the person can change their mind
+mid-session by turning the dial, which the agent sees as its tools changing.
 
 Neither could do this alone: the agent cannot see the file, and the person does
 not want to write the queries.
@@ -105,9 +123,10 @@ the production build. Rather than weaken the policy we replaced Ajv with a
 hand-written validator covering exactly the schema subset the tools use.
 Cleanroom now has **no runtime dependencies beyond React**.
 
-**423 automated tests** — 368 unit and integration, 55 end-to-end. The E2E suite
+**461 automated tests** — 401 unit and integration, 60 end-to-end. The E2E suite
 drives `document.modelContext.getTools()` and `executeTool()` from page context
-without importing our source, so it verifies what an agent actually receives.
+without importing our source, so it verifies what an agent actually receives —
+including that a tool handle captured at *Raw* is dead once the dial comes down.
 
 ### Who it helps — *Potential Impact*
 
@@ -118,16 +137,23 @@ break policy or to go without. This is a third option.
 
 More broadly, it is a worked example of a pattern the agentic web needs: a page
 that gives an agent real capability while keeping the authority — over what is
-released, and over what cannot be undone — with the person.
+released, how much, and what cannot be undone — with the person, and expresses
+that authority as the set of tools the agent is offered.
 
 ### What is new here — *Creativity & Ambition*
 
-The **egress ledger** is, as far as we know, unlike anything else in this space:
-a live, itemised account of every byte an agent has received from your data,
-including the requests it made and was refused. It turns a privacy claim into an
-audit log.
+**The trust dial treats WebMCP registration as a policy surface.** Instead of
+a tool that consults a setting and refuses, the setting decides whether the
+tool exists. An agent cannot ask for what it has not been offered, and the
+person can watch the offer change.
 
-Alongside it: k-anonymity as a user-facing control that the agent provably
+The **egress ledger** is, as far as we know, unlike anything else in this space:
+a live account of every byte an agent has received from your data, summed
+against the bytes that never left — *kept local · released* — and itemised
+beneath, including the requests it made and was refused. It turns a privacy
+claim into an audit log.
+
+Alongside them: k-anonymity as a user-facing control that the agent provably
 cannot override; a profiler that refuses to report `min`/`max` on a text column
 because the minimum of a `name` column is a real person's name; and a
 `sample_rows` tool that must state its reason in writing, shown to the person
@@ -159,7 +185,8 @@ Capture at 1280×800, dark theme, using the sample dataset.
 - [ ] **The approval modal** — mid-request, agent's reason visible. *The single most important image.*
 - [ ] **The egress ledger** — several calls listed, including a refusal, raw rows > 0.
 - [ ] **The Tool Inspector** — `query_dataset` selected, schema expanded.
-- [ ] **The guardrails** — left rail, minimum group size set to 5, raw access off.
+- [ ] **The privacy boundary** — left rail with the trust level at *Sealed*, Inspector showing 3 tools; a second frame at *Raw* showing 9.
+- [ ] **The balance line** — ledger header reading `955 B kept local · … released` after a few calls.
 - [ ] **DevTools proof** — Network tab or CSP header showing `connect-src 'none'`.
 
 ## Video checklist
@@ -180,9 +207,9 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Age of majority in country of residence | ✅ | Confirmed by entrant | — |
 | Resident of an eligible country (India not excluded) | ✅ | Confirmed by entrant | — |
 | Solo entry permitted | ✅ | Official rules | — |
-| WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`; `src/tools/` | — |
+| WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`, registered and withdrawn by trust level; `src/tools/` | — |
 | Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
-| Functions consistently on its platform | ✅ | 55 E2E tests across 4 viewports; CI green on clean Ubuntu runner (run 33542619620) | Re-verify on live URL |
+| Functions consistently on its platform | ✅ | 60 E2E tests across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
 | Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
 | Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
 | Complete source + run instructions | ✅ | README: install, verify, build, deploy; CI proves a clean clone builds and passes | — |

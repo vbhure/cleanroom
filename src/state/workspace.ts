@@ -7,15 +7,41 @@
  * or delete either.
  *
  * Three pieces of state exist purely to keep the agent honest:
- *   `minGroupSize`     the k-anonymity threshold, set by the human
- *   `allowSampleRows`  whether raw rows may be requested at all
- *   `egress`           an itemised log of everything an agent has received
+ *   `minGroupSize`  the k-anonymity threshold, set by the human
+ *   `trustLevel`    how much of the data the tool surface may derive from —
+ *                   moving it registers and withdraws WebMCP tools live
+ *   `egress`        an itemised log of everything an agent has received
  */
 
 import type { Dataset } from '../data/types'
 import type { Aggregation, Filter, OrderBy } from '../data/query'
 
 export type Author = 'human' | 'agent'
+
+/**
+ * The trust dial. Each position is a policy about what may leave the data:
+ *   `sealed`      nothing derived from it — the agent sees structure and can
+ *                 write to the report, but every analysis tool is withdrawn
+ *   `aggregates`  counts, sums, averages and the like; never a record
+ *   `raw`         up to a few raw rows, each release approved by the human
+ *
+ * The level is read by the tool layer on every call and cannot be set by a
+ * tool argument. It is ordered: `raw` permits everything `aggregates` does.
+ */
+export type TrustLevel = 'sealed' | 'aggregates' | 'raw'
+
+export const TRUST_LEVELS: readonly TrustLevel[] = ['sealed', 'aggregates', 'raw']
+
+const TRUST_RANK: Record<TrustLevel, number> = { sealed: 0, aggregates: 1, raw: 2 }
+
+/** Whether `level` is at least as permissive as `required`. */
+export function trustAllows(level: TrustLevel, required: TrustLevel): boolean {
+  return TRUST_RANK[level] >= TRUST_RANK[required]
+}
+
+export function isTrustLevel(value: unknown): value is TrustLevel {
+  return typeof value === 'string' && (TRUST_LEVELS as readonly string[]).includes(value)
+}
 
 export type ChartType = 'bar' | 'line'
 
@@ -80,8 +106,8 @@ export interface WorkspaceState {
   filters: Record<string, Filter[]>
   /** Groups smaller than this are suppressed in every grouped result. */
   minGroupSize: number
-  /** When false, sample_rows refuses without even asking the human. */
-  allowSampleRows: boolean
+  /** The trust dial. Decides which tools are registered at all. */
+  trustLevel: TrustLevel
   egress: EgressEntry[]
   pendingApproval: ApprovalRequest | null
 }
@@ -91,7 +117,7 @@ const INITIAL_STATE: WorkspaceState = {
   blocks: [],
   filters: {},
   minGroupSize: 1,
-  allowSampleRows: false,
+  trustLevel: 'aggregates',
   egress: [],
   pendingApproval: null,
 }
@@ -248,8 +274,9 @@ export class WorkspaceStore {
     this.commit({ ...this.state, minGroupSize: Math.max(1, Math.trunc(size)) })
   }
 
-  setAllowSampleRows(allowed: boolean): void {
-    this.commit({ ...this.state, allowSampleRows: allowed })
+  setTrustLevel(level: TrustLevel): void {
+    if (!isTrustLevel(level)) return
+    this.commit({ ...this.state, trustLevel: level })
   }
 
   // --- egress ledger --------------------------------------------------------
@@ -268,6 +295,11 @@ export class WorkspaceStore {
 
   totalRowsReleased(): number {
     return this.state.egress.reduce((total, entry) => total + entry.rowsReleased, 0)
+  }
+
+  /** Bytes of source data held in this tab — the other side of the ledger. */
+  totalBytesKeptLocal(): number {
+    return this.state.datasets.reduce((total, dataset) => total + dataset.sourceBytes, 0)
   }
 
   // --- human approval -------------------------------------------------------

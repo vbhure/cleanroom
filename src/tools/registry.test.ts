@@ -140,6 +140,127 @@ describe('toolchange — the tool surface follows the app state', () => {
   })
 })
 
+describe('the trust dial changes what the agent is offered', () => {
+  it('starts at aggregates: the raw-row tool is not registered at all', async () => {
+    loadSales()
+    await settle()
+
+    const names = await toolNames()
+    expect(names).toHaveLength(8)
+    expect(names).toContain('query_dataset')
+    expect(names).not.toContain('sample_rows')
+  })
+
+  it('registers sample_rows only when the person turns the dial to raw', async () => {
+    loadSales()
+    await settle()
+
+    workspace.setTrustLevel('raw')
+    await settle()
+
+    const names = await toolNames()
+    expect(names).toHaveLength(9)
+    expect(names).toContain('sample_rows')
+  })
+
+  it('withdraws every data-reading tool at sealed, leaving the safe three', async () => {
+    loadSales()
+    await settle()
+
+    workspace.setTrustLevel('sealed')
+    await settle()
+
+    expect(await toolNames()).toEqual(['add_note', 'clear_workspace', 'list_datasets'])
+  })
+
+  it('withdraws sample_rows again the moment the dial comes down', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+    await settle()
+    expect(await toolNames()).toContain('sample_rows')
+
+    workspace.setTrustLevel('aggregates')
+    await settle()
+
+    expect(await toolNames()).not.toContain('sample_rows')
+    // A stale handle from before the change is dead, not merely refusing.
+    const stale = { name: 'sample_rows' } as RegisteredTool
+    await expect(modelContext.executeTool(stale, {})).rejects.toThrow(
+      /No tool named "sample_rows"/,
+    )
+  })
+
+  it('announces each move of the dial with a toolchange event', async () => {
+    loadSales()
+    await settle()
+
+    let fired = 0
+    modelContext.addEventListener('toolchange', () => {
+      fired += 1
+    })
+
+    workspace.setTrustLevel('sealed')
+    await settle()
+    const afterSealed = fired
+    expect(afterSealed).toBeGreaterThan(0)
+
+    workspace.setTrustLevel('raw')
+    await settle()
+    expect(fired).toBeGreaterThan(afterSealed)
+  })
+
+  it('does not fire toolchange for a move that changes nothing', async () => {
+    loadSales()
+    await settle()
+
+    let fired = 0
+    modelContext.addEventListener('toolchange', () => {
+      fired += 1
+    })
+
+    workspace.setTrustLevel('aggregates')
+    await settle()
+
+    expect(fired).toBe(0)
+  })
+
+  it('aborts a raw-row request that is waiting on the person when the dial comes down', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+    await settle()
+
+    const tool = await findRegistered('sample_rows')
+    const pending = modelContext.executeTool(tool, {
+      dataset: 'sales',
+      reason: 'checking a record while the dial is up',
+    })
+    for (let i = 0; i < 20 && !workspace.getState().pendingApproval; i += 1) {
+      await settle()
+    }
+    expect(workspace.getState().pendingApproval).not.toBeNull()
+
+    workspace.setTrustLevel('aggregates')
+    await settle()
+
+    // The prompt is gone with the tool, and the agent gets a refusal.
+    expect(workspace.getState().pendingApproval).toBeNull()
+    const result = JSON.parse(await pending) as { error?: { code?: string } }
+    expect(result.error?.code).toBe('approval_denied')
+    expect(workspace.totalRowsReleased()).toBe(0)
+  })
+
+  it('reports the level to an agent that asks, so it can plan', async () => {
+    loadSales()
+    workspace.setTrustLevel('sealed')
+    await settle()
+
+    const result = await execute('list_datasets')
+    const privacy = result.privacy as Record<string, unknown>
+    expect(privacy.trustLevel).toBe('sealed')
+    expect(privacy.rawRowAccess).toBe('disabled')
+  })
+})
+
 describe('tool execution through the WebMCP interface', () => {
   it('returns a JSON string an agent can parse', async () => {
     loadSales()

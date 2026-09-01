@@ -1,16 +1,33 @@
 /**
- * Left rail: load a file, see what is loaded, and set the guardrails.
+ * Left rail: load a file, see what is loaded, and set the privacy boundary.
  *
- * The guardrails belong to the human and to no one else. `minGroupSize` and
- * raw-row access are read by the tool layer on every call and cannot be
+ * The boundary belongs to the human and to no one else. The trust dial and
+ * `minGroupSize` are read by the tool layer on every call and cannot be
  * overridden by a tool argument, so what is set here is what an agent gets.
+ * Moving the dial registers and withdraws WebMCP tools on the spot: the
+ * agent's menu shrinks or grows in front of the person.
  */
 
 import { useId, useRef, useState } from 'react'
 import { buildDataset } from '../data/dataset'
-import { workspace } from '../state/workspace'
+import { TRUST_LEVELS, workspace } from '../state/workspace'
+import type { TrustLevel } from '../state/workspace'
 import { formatBytes, formatCount } from './format'
 import { useWorkspace } from './useWorkspace'
+
+const TRUST_LABEL: Record<TrustLevel, string> = {
+  sealed: 'Sealed',
+  aggregates: 'Aggregates',
+  raw: 'Raw',
+}
+
+const TRUST_HINT: Record<TrustLevel, string> = {
+  sealed:
+    'The agent can see what is loaded and write to the report, but every tool that computes from your data is withdrawn. Nothing derived from it leaves this tab.',
+  aggregates:
+    'The agent can profile, query and chart your data and receives only aggregates. The one tool that could reveal a record is not offered at all.',
+  raw: 'The agent may ask to see up to 5 raw rows. Each request stops for your decision, with the agent’s reason shown to you verbatim.',
+}
 
 const SAMPLE_CSV = `region,rep,deal_size,closed_on,segment,status
 North,Ada Lovelace,12500,2026-01-05,Enterprise,won
@@ -43,11 +60,8 @@ export function Sidebar() {
       <DropZone />
       <DatasetList />
 
-      <h2 className="railHeading">Privacy guardrails</h2>
-      <Guardrails
-        minGroupSize={state.minGroupSize}
-        allowSampleRows={state.allowSampleRows}
-      />
+      <h2 className="railHeading">Privacy boundary</h2>
+      <Guardrails minGroupSize={state.minGroupSize} trustLevel={state.trustLevel} />
     </aside>
   )
 }
@@ -217,16 +231,17 @@ function DatasetList() {
 
 function Guardrails({
   minGroupSize,
-  allowSampleRows,
+  trustLevel,
 }: {
   minGroupSize: number
-  allowSampleRows: boolean
+  trustLevel: TrustLevel
 }) {
   const groupId = useId()
-  const rawId = useId()
 
   return (
     <div className="guardrails">
+      <TrustDial level={trustLevel} />
+
       <div className="guardrail">
         <label className="guardrailLabel" htmlFor={groupId}>
           Minimum group size
@@ -248,23 +263,43 @@ function Guardrails({
           isolate an individual. 1 turns it off.
         </p>
       </div>
-
-      <div className="guardrail">
-        <label className="guardrailToggle" htmlFor={rawId}>
-          <input
-            id={rawId}
-            type="checkbox"
-            checked={allowSampleRows}
-            onChange={(event) => workspace.setAllowSampleRows(event.target.checked)}
-          />
-          <span>Allow raw row requests</span>
-        </label>
-        <p className="guardrailHint">
-          {allowSampleRows
-            ? 'An agent may ask to see a few raw rows. You will be asked to approve every request.'
-            : 'Off. An agent cannot see any individual record, and asking is refused outright.'}
-        </p>
-      </div>
     </div>
+  )
+}
+
+/**
+ * The trust dial. Three positions, each a policy about what may leave the
+ * data. It is not a preference the tools consult: it decides which tools are
+ * registered with the browser at all, so the agent's menu changes the moment
+ * the person moves it.
+ */
+function TrustDial({ level }: { level: TrustLevel }) {
+  const name = useId()
+
+  return (
+    <fieldset className="guardrail trustDial" data-testid="trust-dial">
+      <legend className="guardrailLabel">Trust level</legend>
+      <div className="trustOptions">
+        {TRUST_LEVELS.map((option) => (
+          <label
+            key={option}
+            className={`trustOption${option === level ? ' trustOptionActive' : ''}`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option}
+              checked={option === level}
+              onChange={() => workspace.setTrustLevel(option)}
+              data-testid={`trust-${option}`}
+            />
+            <span>{TRUST_LABEL[option]}</span>
+          </label>
+        ))}
+      </div>
+      <p className="guardrailHint" data-testid="trust-hint">
+        {TRUST_HINT[level]}
+      </p>
+    </fieldset>
   )
 }

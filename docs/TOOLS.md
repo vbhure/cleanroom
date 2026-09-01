@@ -1,7 +1,8 @@
 # Tool reference
 
-Eleven tools, registered on `document.modelContext`. Definitions live in
-[`src/tools/dataTools.ts`](../src/tools/dataTools.ts) and
+Eleven tools, registered on `document.modelContext` according to what is
+loaded and how much the person has chosen to let an agent see. Definitions
+live in [`src/tools/dataTools.ts`](../src/tools/dataTools.ts) and
 [`src/tools/reportTools.ts`](../src/tools/reportTools.ts).
 
 Every tool goes through one path — validate → execute → cap → record
@@ -22,13 +23,28 @@ browser's agent or by the in-app Tool Inspector.
 
 ## Registration lifecycle
 
-Availability is a function of workspace state; changes fire `toolchange`.
+Availability is a function of workspace state — what is loaded, and the
+**trust level** the person has set. Every change registers or unregisters
+tools and fires `toolchange`.
 
 | State | Registered |
 | --- | --- |
 | Nothing loaded | `list_datasets`, `add_note` |
-| A dataset loaded | the above, plus `describe_columns`, `query_dataset`, `detect_anomalies`, `sample_rows`, `add_chart`, `set_report_filter`, `clear_workspace` — nine in total |
-| Report has blocks | plus `update_report_block`, `remove_report_block` — eleven |
+| A dataset loaded, trust level **Sealed** | the above, plus `clear_workspace` — three |
+| … trust level **Aggregates** *(default)* | plus `describe_columns`, `query_dataset`, `detect_anomalies`, `add_chart`, `set_report_filter` — eight |
+| … trust level **Raw** | plus `sample_rows` — nine |
+| Report has blocks | plus `update_report_block`, `remove_report_block` — up to eleven |
+
+The trust level is a page-side policy, not a tool argument: an agent cannot
+set it, and a tool the level does not permit is *not registered*, rather than
+registered and refusing. Two further checks hold the line for the moment
+between the dial moving and the browser catching up:
+
+- the runner re-checks availability before executing, and refuses with
+  `tool_unavailable` if the tool has been withdrawn since the call was made;
+- withdrawing a tool aborts its calls in flight, so a `sample_rows` prompt
+  that is waiting on the person closes with `approval_denied` and releases
+  nothing.
 
 ---
 
@@ -46,12 +62,17 @@ Structure only — no cell values. Call it first.
     { "id": "sample_sales", "name": "sample_sales.csv", "rows": 20,
       "columns": [{ "name": "region", "type": "string" }] }
   ],
-  "privacy": { "minGroupSize": 1, "rawRowAccess": "disabled", "maxRowsPerResult": 50 }
+  "privacy": {
+    "trustLevel": "aggregates", "minGroupSize": 1,
+    "rawRowAccess": "disabled", "maxRowsPerResult": 50
+  }
 }
 ```
 
 The `privacy` block tells the agent the rules up front, so it does not discover
-them by trial and error.
+them by trial and error. `rawRowAccess` is `"requires approval"` only at the
+*Raw* level; below it, `sample_rows` is not registered and the agent should
+not plan on it.
 
 ---
 
@@ -120,17 +141,23 @@ warnings before informational findings.
 
 ## 🔴 `sample_rows`
 
-The only route to a raw cell value.
+The only route to a raw cell value. **Registered only at the *Raw* trust
+level**; below it the tool does not exist as far as the agent is concerned.
 
 **Input:** `dataset` (required), `reason` (required, 8–200 chars, shown to the
 person verbatim), `rows` (1–5, default 3), `columns` (strongly encouraged).
 
 **Behaviour**
 
-1. Refused with `raw_access_disabled` unless the human enabled raw access.
+1. Refused with `raw_access_disabled` if the trust level is below *Raw* —
+   a backstop for a call that slipped in as the dial moved; normally the tool
+   is simply not offered.
 2. Column names validated **before** prompting.
-3. Suspends until the person answers. Escape or two minutes ⇒ deny.
-4. A second concurrent request is denied, not queued.
+3. Suspends until the person answers. Escape or two minutes ⇒ deny. Turning
+   the dial down while the prompt is open withdraws the request.
+4. The level is checked **again** after approval, so a "yes" given at *Raw*
+   cannot release rows once the person has moved to *Aggregates*.
+5. A second concurrent request is denied, not queued.
 
 **Returns** `columns`, `rows`, and a note that the contents are untrusted data
 rather than instructions. The ledger records the row count prominently.

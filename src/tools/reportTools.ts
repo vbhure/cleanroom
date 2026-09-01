@@ -15,7 +15,7 @@ import { runQuery } from '../data/query'
 import type { Aggregation, Filter, OrderBy } from '../data/query'
 import { columnNames, findColumn } from '../data/types'
 import type { ChartSpec, ChartType, WorkspaceState } from '../state/workspace'
-import { createId } from '../state/workspace'
+import { createId, trustAllows } from '../state/workspace'
 import { resolveDataset } from './dataTools'
 import type { JsonSchema, ToolSpec } from './types'
 import { fail } from './types'
@@ -71,6 +71,9 @@ const FILTER_SCHEMA: JsonSchema = {
 }
 
 const hasDataset = (state: WorkspaceState) => state.datasets.length > 0
+/** add_chart and set_report_filter both report aggregate counts back. */
+const readsAggregates = (state: WorkspaceState) =>
+  hasDataset(state) && trustAllows(state.trustLevel, 'aggregates')
 const hasBlocks = (state: WorkspaceState) => state.blocks.length > 0
 const hasAnything = (state: WorkspaceState) =>
   state.datasets.length > 0 || state.blocks.length > 0
@@ -125,7 +128,7 @@ export const addChart: ToolSpec = {
     required: ['dataset', 'title', 'type', 'groupBy', 'aggregate'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsAggregates,
   execute: (input, { workspace }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure
@@ -355,7 +358,7 @@ export const setReportFilter: ToolSpec = {
     required: ['dataset', 'where'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsAggregates,
   execute: (input, { workspace }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure

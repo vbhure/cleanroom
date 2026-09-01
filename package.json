@@ -36,6 +36,6 @@
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
-  "description": "Analyse a spreadsheet with an AI agent without ever uploading it. A local-first, zero-backend WebMCP workspace.",
+  "description": "Give an AI agent real power over data it is never allowed to see. A zero-backend WebMCP workspace with a human-controlled privacy boundary.",
   "license": "MIT"
 }

@@ -122,8 +122,14 @@ export class ToolRegistrar {
           inputSchema: tool.inputSchema,
           annotations: tool.annotations,
           execute: async (input, { signal }) => {
+            // Withdrawing a tool withdraws its calls in flight as well, so a
+            // prompt waiting on the person closes when the tool it belongs to
+            // is gone. Nothing else reads the signal, so a call that has
+            // already done its work is unaffected.
             const outcome = await runTool(tool, this.options.workspace, input, {
-              signal,
+              signal: signal
+                ? AbortSignal.any([signal, controller.signal])
+                : controller.signal,
             })
             return outcome.payload
           },

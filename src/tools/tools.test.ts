@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { buildDataset } from '../data/dataset'
-import { WorkspaceStore, createId } from '../state/workspace'
-import { findTool } from './index'
+import { WorkspaceStore, createId, isTrustLevel, trustAllows } from '../state/workspace'
+import { ALL_TOOLS, findTool } from './index'
 import { runTool } from './runner'
 import type { ToolSpec } from './types'
 
@@ -108,7 +108,21 @@ describe('list_datasets', () => {
     >
 
     expect(privacy.minGroupSize).toBe(3)
+    expect(privacy.trustLevel).toBe('aggregates')
     expect(privacy.rawRowAccess).toBe('disabled')
+  })
+
+  it('reports the trust level the person has set', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+
+    const privacy = payload(await call('list_datasets')).privacy as Record<
+      string,
+      unknown
+    >
+
+    expect(privacy.trustLevel).toBe('raw')
+    expect(privacy.rawRowAccess).toBe('requires approval')
   })
 })
 
@@ -269,19 +283,54 @@ describe('detect_anomalies', () => {
 })
 
 describe('sample_rows — the human gate', () => {
-  it('refuses outright when raw access is switched off', async () => {
+  it('is withdrawn, not merely refused, below the raw level', async () => {
     loadSales()
+    expect(workspace.getState().trustLevel).toBe('aggregates')
+
     const error = errorOf(
       await call('sample_rows', { dataset: 'sales', reason: 'need to see rows' }),
     )
 
-    expect(error.code).toBe('raw_access_disabled')
+    expect(error.code).toBe('tool_unavailable')
+    expect(error.message).toMatch(/list_datasets/)
     expect(workspace.getState().pendingApproval).toBeNull()
+    expect(workspace.totalRowsReleased()).toBe(0)
+  })
+
+  it('refuses inside execute as well, in case the runner is bypassed', async () => {
+    loadSales()
+    const outcome = await tool('sample_rows').execute(
+      { dataset: 'sales', reason: 'need to see rows' },
+      { workspace, signal: new AbortController().signal },
+    )
+
+    expect('error' in outcome && outcome.error.code).toBe('raw_access_disabled')
+    expect(workspace.getState().pendingApproval).toBeNull()
+  })
+
+  it('withholds the rows if the dial is turned down while the prompt is open', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+
+    const pending = call('sample_rows', { dataset: 'sales', reason: 'checking a record' })
+    await waitFor(
+      () => workspace.getState().pendingApproval !== null,
+      'approval request',
+    )
+
+    // The person changes their mind about the workspace, then clicks Allow.
+    // The workspace decision is the later, broader one, so it wins.
+    workspace.setTrustLevel('aggregates')
+    workspace.resolveApproval(true)
+
+    const error = errorOf(await pending)
+    expect(error.code).toBe('raw_access_disabled')
+    expect(workspace.totalRowsReleased()).toBe(0)
   })
 
   it('releases rows only after the human approves', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const outcome = await callWithApproval(
       'sample_rows',
@@ -299,7 +348,7 @@ describe('sample_rows — the human gate', () => {
 
   it('returns an actionable refusal when the human declines', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const outcome = await callWithApproval(
       'sample_rows',
@@ -315,7 +364,7 @@ describe('sample_rows — the human gate', () => {
 
   it('shows the agent’s stated reason to the human', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const pending = call('sample_rows', {
       dataset: 'sales',
@@ -338,7 +387,7 @@ describe('sample_rows — the human gate', () => {
 
   it('requires a reason of substance', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const error = errorOf(await call('sample_rows', { dataset: 'sales', reason: 'why' }))
     expect(error.code).toBe('invalid_input')
@@ -346,7 +395,7 @@ describe('sample_rows — the human gate', () => {
 
   it('caps the number of rows at the schema', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const error = errorOf(
       await call('sample_rows', {
@@ -361,7 +410,7 @@ describe('sample_rows — the human gate', () => {
 
   it('denies a second request while one is already waiting', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const first = call('sample_rows', { dataset: 'sales', reason: 'first request' })
     await waitFor(
@@ -382,7 +431,7 @@ describe('sample_rows — the human gate', () => {
 
   it('reports an empty dataset instead of asking for permission', async () => {
     workspace.addDataset(buildDataset({ name: 'empty.csv', text: 'a,b' }))
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const error = errorOf(
       await call('sample_rows', { dataset: 'empty', reason: 'looking for anything' }),
@@ -394,7 +443,7 @@ describe('sample_rows — the human gate', () => {
 
   it('validates column names before prompting the human', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
 
     const error = errorOf(
       await call('sample_rows', {
@@ -653,6 +702,115 @@ describe('tool availability tracks workspace state', () => {
     expect(findTool('clear_workspace')?.available(loaded)).toBe(true)
     expect(findTool('update_report_block')?.available(loaded)).toBe(false)
   })
+
+  /** Names of every tool that would be registered for the current state. */
+  function offered(): string[] {
+    const state = workspace.getState()
+    return ALL_TOOLS
+      .filter((spec) => spec.available(state))
+      .map((spec) => spec.name)
+      .sort()
+  }
+
+  it('withdraws every data-reading tool at "sealed"', () => {
+    loadSales()
+    workspace.setTrustLevel('sealed')
+
+    expect(offered()).toEqual(['add_note', 'clear_workspace', 'list_datasets'])
+  })
+
+  it('offers aggregates but never the raw-row tool at "aggregates"', () => {
+    loadSales()
+    expect(workspace.getState().trustLevel).toBe('aggregates')
+
+    expect(offered()).toEqual([
+      'add_chart',
+      'add_note',
+      'clear_workspace',
+      'describe_columns',
+      'detect_anomalies',
+      'list_datasets',
+      'query_dataset',
+      'set_report_filter',
+    ])
+  })
+
+  it('adds only the human-gated raw-row tool at "raw"', () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+
+    expect(offered()).toContain('sample_rows')
+    expect(offered()).toHaveLength(9)
+  })
+
+  it('never offers a data tool without data, whatever the level', () => {
+    workspace.setTrustLevel('raw')
+    expect(offered()).toEqual(['add_note', 'list_datasets'])
+  })
+
+  it('refuses a call to a tool that has been withdrawn', async () => {
+    loadSales()
+    workspace.setTrustLevel('sealed')
+
+    const error = errorOf(
+      await call('query_dataset', { dataset: 'sales', aggregate: [{ op: 'count' }] }),
+    )
+
+    expect(error.code).toBe('tool_unavailable')
+    // The refusal is still on the record.
+    expect(workspace.getState().egress[0]?.tool).toBe('query_dataset')
+    expect(workspace.getState().egress[0]?.summary).toMatch(/refused/)
+  })
+
+  it('keeps the withdrawal message inside the output budget', async () => {
+    loadSales()
+    workspace.setTrustLevel('sealed')
+    const outcome = await call('describe_columns', { dataset: 'sales' })
+
+    expect(outcome.ok).toBe(false)
+    expect(outcome.characters).toBeLessThan(1500)
+  })
+})
+
+describe('the trust dial', () => {
+  it('starts at aggregates: useful, and reveals no record', () => {
+    expect(workspace.getState().trustLevel).toBe('aggregates')
+  })
+
+  it('is ordered, so each level includes everything below it', () => {
+    expect(trustAllows('sealed', 'sealed')).toBe(true)
+    expect(trustAllows('sealed', 'aggregates')).toBe(false)
+    expect(trustAllows('aggregates', 'aggregates')).toBe(true)
+    expect(trustAllows('aggregates', 'raw')).toBe(false)
+    expect(trustAllows('raw', 'sealed')).toBe(true)
+    expect(trustAllows('raw', 'raw')).toBe(true)
+  })
+
+  it('ignores anything that is not a level, so a bad value cannot open the gate', () => {
+    workspace.setTrustLevel('sealed')
+    workspace.setTrustLevel('RAW' as never)
+    workspace.setTrustLevel('' as never)
+    workspace.setTrustLevel(undefined as never)
+
+    expect(workspace.getState().trustLevel).toBe('sealed')
+    expect(isTrustLevel('raw')).toBe(true)
+    expect(isTrustLevel('Raw')).toBe(false)
+    expect(isTrustLevel(2)).toBe(false)
+  })
+
+  it('cannot be set by a tool argument', async () => {
+    loadSales()
+    const error = errorOf(
+      await call('query_dataset', {
+        dataset: 'sales',
+        aggregate: [{ op: 'count' }],
+        trustLevel: 'raw',
+      }),
+    )
+
+    expect(error.code).toBe('invalid_input')
+    expect(workspace.getState().trustLevel).toBe('aggregates')
+  })
 })
 
 describe('the egress ledger', () => {
@@ -679,7 +837,7 @@ describe('the egress ledger', () => {
 
   it('attributes rows released only to approved raw access', async () => {
     loadSales()
-    workspace.setAllowSampleRows(true)
+    workspace.setTrustLevel('raw')
     await call('query_dataset', { dataset: 'sales', aggregate: [{ op: 'count' }] })
 
     expect(workspace.totalRowsReleased()).toBe(0)

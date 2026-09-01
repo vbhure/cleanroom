@@ -1,7 +1,7 @@
 # Threat model
 
-Cleanroom's whole proposition is that sensitive data can be analysed by an AI
-agent without leaving the browser. That makes the security posture the product,
+Cleanroom's whole proposition is that an AI agent can be given real power over
+data it is never allowed to see. That makes the security posture the product,
 not a wrapper around it. This document states what is defended, how, and — just
 as importantly — what is not.
 
@@ -79,15 +79,35 @@ no text cell value can appear in a serialised finding.
 
 ---
 
-## Control 4 — k-anonymity the human controls
+## Control 4 — the boundary is a dial the human holds, expressed as tools
 
-Grouped results suppress any group smaller than `minGroupSize`. Group by
-`email` with the threshold at 5 and you get a suppressed count, not a list of
-people.
+The **trust level** — Sealed, Aggregates, Raw — decides which tools are
+registered with the browser. At *Sealed*, every tool that computes from the
+data is unregistered and the agent is left with `list_datasets`, `add_note`
+and `clear_workspace`. At *Aggregates* the analysis tools are offered. Only at
+*Raw* does `sample_rows` exist at all.
 
-The threshold lives in the workspace and is read on every call. **An agent
-cannot set it.** Passing `minGroupSize` as a tool argument is rejected as an
-unexpected property, because every schema sets `additionalProperties: false`.
+This is enforced by registration, not by a check inside each tool: an agent
+cannot call what it has not been offered, and the browser announces every
+change with `toolchange`. Two further checks cover the instant between the
+dial moving and the browser catching up — the runner re-checks availability
+before executing (`tool_unavailable`), and withdrawing a tool aborts its calls
+in flight, so a raw-row prompt waiting on the person closes without releasing
+anything.
+
+Within the aggregate tools, grouped results suppress any group smaller than
+`minGroupSize`. Group by `email` with the threshold at 5 and you get a
+suppressed count, not a list of people.
+
+Both controls live in the workspace and are read on every call. **An agent
+cannot set either.** Passing `minGroupSize` or `trustLevel` as a tool argument
+is rejected as an unexpected property, because every schema sets
+`additionalProperties: false`.
+
+**Verified by:** registry tests assert the exact tool set at each level, that
+`toolchange` fires per move and not for a no-op, that a stale handle is dead
+after withdrawal, and that a pending prompt is aborted; an end-to-end test
+does the same through `document.modelContext` from page context.
 
 ---
 
@@ -99,7 +119,9 @@ inside a dataset can talk past it — the model is not the thing being asked.
 
 `sample_rows`, the only route to a raw cell value:
 
-- refuses outright unless the human has enabled raw access;
+- is not registered below the *Raw* trust level, and refuses with
+  `raw_access_disabled` — before prompting and again after approval — if the
+  level is found to be lower when it runs;
 - requires a written `reason`, shown to the human verbatim and attributed to the
   agent, so a reason that is itself an injection attempt reads as exactly that;
 - caps the request at 5 rows;
@@ -173,7 +195,9 @@ Stated plainly.
   observable. They do not make it impossible.
 - **An approved `sample_rows` call really does release records.** That is the
   point of asking. The control is the human, and the ledger records it.
-- **A user can turn the guardrails off.** They own their data.
+- **A user can turn the dial to *Raw* and lower the group threshold.** They
+  own their data. The controls exist so that doing so is a deliberate act the
+  person can see, not a default the agent can rely on.
 - **Nothing here constrains what the agent does with data after it receives
   it.** No page can.
 

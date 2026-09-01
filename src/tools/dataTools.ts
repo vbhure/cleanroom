@@ -3,9 +3,10 @@
  *
  * Four of these are read-only and return nothing but aggregates. The fifth,
  * `sample_rows`, is the only path in the entire application by which a raw cell
- * value can reach an agent, and it is gated twice: the human must have enabled
- * raw access at all, and must then approve the specific request, with the
- * agent's stated reason in front of them.
+ * value can reach an agent, and it is gated twice: the human must have turned
+ * the trust level to raw (below which the tool is not registered at all), and
+ * must then approve the specific request, with the agent's stated reason in
+ * front of them.
  */
 
 import { detectAnomalies, ALL_ANOMALY_KINDS } from '../data/anomalies'
@@ -14,12 +15,18 @@ import { profileDataset } from '../data/profile'
 import { runQuery } from '../data/query'
 import type { Aggregation, Filter, OrderBy, QuerySpec } from '../data/query'
 import type { Dataset } from '../data/types'
-import type { WorkspaceStore } from '../state/workspace'
+import type { WorkspaceState, WorkspaceStore } from '../state/workspace'
+import { trustAllows } from '../state/workspace'
 import type { JsonSchema, ToolOutcome, ToolSpec } from './types'
 import { fail } from './types'
 
 /** Raw rows an agent may request in one approved call. */
 export const MAX_SAMPLE_ROWS = 5
+
+const RAW_ACCESS_DISABLED = fail(
+  'raw_access_disabled',
+  'Raw row access is switched off for this workspace: the trust level is below "raw". Only the person can change that. Use query_dataset for aggregates instead.',
+)
 
 const FILTER_SCHEMA: JsonSchema = {
   type: 'object',
@@ -104,7 +111,19 @@ export function resolveDataset(
   return { ok: true, dataset }
 }
 
-const hasDataset = (state: { datasets: unknown[] }) => state.datasets.length > 0
+const hasDataset = (state: WorkspaceState) => state.datasets.length > 0
+
+/**
+ * Availability is where the trust dial bites. A tool that could derive
+ * aggregates from the data is only registered at `aggregates` or above, and
+ * the one tool that can reveal a record only at `raw`. Below that level the
+ * tool is not refused — it does not exist on the agent's menu at all, and
+ * moving the dial withdraws it live through `toolchange`.
+ */
+const readsAggregates = (state: WorkspaceState) =>
+  hasDataset(state) && trustAllows(state.trustLevel, 'aggregates')
+const readsRawRows = (state: WorkspaceState) =>
+  hasDataset(state) && trustAllows(state.trustLevel, 'raw')
 
 export const listDatasets: ToolSpec = {
   name: 'list_datasets',
@@ -132,8 +151,11 @@ export const listDatasets: ToolSpec = {
         // Telling the agent the rules up front avoids it discovering them by
         // trial and error, which wastes calls and looks like it is probing.
         privacy: {
+          trustLevel: state.trustLevel,
           minGroupSize: state.minGroupSize,
-          rawRowAccess: state.allowSampleRows ? 'requires approval' : 'disabled',
+          rawRowAccess: trustAllows(state.trustLevel, 'raw')
+            ? 'requires approval'
+            : 'disabled',
           maxRowsPerResult: 50,
         },
       },
@@ -162,7 +184,7 @@ export const describeColumns: ToolSpec = {
     required: ['dataset'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsAggregates,
   execute: (input, { workspace }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure
@@ -229,7 +251,7 @@ export const queryDataset: ToolSpec = {
     required: ['dataset', 'aggregate'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsAggregates,
   execute: (input, { workspace }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure
@@ -299,7 +321,7 @@ export const detectAnomaliesTool: ToolSpec = {
     required: ['dataset'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsAggregates,
   execute: (input, { workspace }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure
@@ -364,19 +386,17 @@ export const sampleRows: ToolSpec = {
     required: ['dataset', 'reason'],
     additionalProperties: false,
   },
-  available: hasDataset,
+  available: readsRawRows,
   execute: async (input, { workspace, signal }) => {
     const resolved = resolveDataset(workspace, input.dataset)
     if (!resolved.ok) return resolved.failure
 
     const { dataset } = resolved
-    const state = workspace.getState()
 
-    if (!state.allowSampleRows) {
-      return fail(
-        'raw_access_disabled',
-        'Raw row access is switched off for this workspace. The person must enable it before this tool can be used. Use query_dataset for aggregates instead.',
-      )
+    // Belt and braces: the runner already refuses a withdrawn tool, but the
+    // one tool that can reveal a record checks the dial itself as well.
+    if (!trustAllows(workspace.getState().trustLevel, 'raw')) {
+      return RAW_ACCESS_DISABLED
     }
 
     const requestedColumns = (input.columns as string[] | undefined) ?? []
@@ -425,6 +445,12 @@ export const sampleRows: ToolSpec = {
         'approval_denied',
         'The person did not approve releasing raw rows. Continue with aggregates from query_dataset instead, and do not ask again unless they bring it up.',
       )
+    }
+
+    // The person may have turned the dial down while the prompt was open.
+    // Their most recent decision about the workspace wins over the click.
+    if (!trustAllows(workspace.getState().trustLevel, 'raw')) {
+      return RAW_ACCESS_DISABLED
     }
 
     const rows: unknown[][] = []

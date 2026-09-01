@@ -4,7 +4,8 @@
  * Every tool call an agent makes is itemised here with its risk class, the
  * number of characters the agent received, and any raw rows released. It turns
  * "your data stays local" from a claim into a running account the person can
- * audit at a glance.
+ * audit at a glance, and one line sums it up: how much is held in this tab
+ * against how much has ever left it.
  *
  * Refusals are listed too. Seeing that an agent asked for something and was
  * turned down is at least as informative as seeing what it got.
@@ -12,7 +13,7 @@
 
 import { workspace } from '../state/workspace'
 import type { EgressEntry, RiskClass } from '../state/workspace'
-import { formatCount, formatTime } from './format'
+import { formatBytes, formatCount, formatTime } from './format'
 import { useWorkspace } from './useWorkspace'
 
 const RISK_LABEL: Record<RiskClass, string> = {
@@ -25,10 +26,28 @@ export function Ledger() {
   const state = useWorkspace()
   const characters = workspace.totalCharactersReleased()
   const rows = workspace.totalRowsReleased()
+  const keptLocal = workspace.totalBytesKeptLocal()
 
   return (
     <aside className="rail railRight" aria-label="Egress ledger">
       <h2 className="railHeading">Released to the agent</h2>
+
+      {/*
+        Tool output is JSON of column names, numbers and our own messages, so
+        its character count is its byte count for all practical purposes; the
+        exact figure is on the hover and in the totals below.
+      */}
+      <p className="ledgerBalance" data-testid="egress-balance">
+        <strong data-testid="kept-local">{formatBytes(keptLocal)}</strong> kept
+        local {'\u00b7'}{' '}
+        <strong
+          data-testid="released"
+          title={`${characters.toLocaleString()} characters of tool output`}
+        >
+          {formatBytes(characters)}
+        </strong>{' '}
+        released
+      </p>
 
       <div className="ledgerTotals">
         <div className="ledgerTotal">
@@ -51,8 +70,8 @@ export function Ledger() {
       </div>
 
       <p className="ledgerNote">
-        Your file itself never leaves this tab. This is everything derived from
-        it that an agent has seen.
+        Your file never leaves this tab. This is everything derived from it
+        that an agent has ever been given.
       </p>
 
       {state.egress.length === 0 ? (

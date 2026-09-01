@@ -3,19 +3,27 @@
 [![CI](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml/badge.svg)](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**Analyse a spreadsheet with an AI agent without ever uploading it.**
+**Give an AI agent real power over data it is never allowed to see.**
 
-Cleanroom is a local-first analysis workspace built for the
+Cleanroom is a zero-backend analysis workspace built for the
 [WebMCP Challenge](https://webmcp.devpost.com/). You drop a CSV into the page;
-it is parsed and held **only in your browser tab**. The page then registers
-eleven [WebMCP](https://github.com/webmachinelearning/webmcp) tools so an AI
-agent can profile, query, chart and audit that data — while the file itself
-never leaves your device.
+it is parsed and held **only in your browser tab**, on a page that cannot make
+a network request. The page then registers up to eleven
+[WebMCP](https://github.com/webmachinelearning/webmcp) tools so an AI agent can
+profile, query, chart and audit that data — while the file itself never leaves
+your device, and never reaches the agent.
+
+The data cannot go to the agent, so the tools go to the data. And the tools are
+the privacy boundary: **you set a trust level, and the agent's menu changes in
+front of you** — down to three tools at *Sealed*, up to the one human-gated
+raw-row tool at *Raw*. Every byte that does leave is counted on a ledger:
+*X MB kept local · Y KB released.*
 
 > **Why WebMCP is essential here, in one sentence:** a server-side MCP
 > integration is *physically incapable* of doing this, because the data is never
 > on a server. WebMCP is the only mechanism by which an agent can compute over
-> data that never leaves the user's device.
+> data that never leaves the user's device — and the only one where the page
+> itself decides, live, which capabilities the agent is offered.
 
 ---
 
@@ -27,8 +35,12 @@ people working with sensitive data simply can't do that, so they get no help at
 all. The alternative, an agent clicking around a BI tool by screenshot, is slow,
 brittle, and cannot do statistics.
 
-Cleanroom removes the upload. The agent gets structured tools; the file stays
-put.
+The tension is real: an agent is only useful if it has real power over the
+data, and the data is only safe if the agent never sees it. Cleanroom resolves
+it by moving the computation to the data instead of the data to the model. The
+agent gets structured tools that run in your tab and return aggregates; the
+file stays put; you decide how much power the agent has, and you can see
+exactly what it received.
 
 ---
 
@@ -69,6 +81,7 @@ has no runtime dependencies beyond React.
 | Know what it may do | Infers from the UI | `list_datasets` returns the privacy limits in force |
 | Recover from a mistake | Retries blindly | Errors name the real columns, so it self-corrects |
 | Do something risky | Whatever the UI allows | Blocked in the app until a human clicks |
+| Have its power reduced | Not possible mid-session | Turn the trust dial: tools are unregistered live |
 | Be held to account | No record | Every call itemised in the egress ledger |
 
 ---
@@ -100,33 +113,54 @@ Full reference: [`docs/TOOLS.md`](./docs/TOOLS.md).
 
 | Tool | What it does |
 | --- | --- |
-| `sample_rows` | The *only* route to a raw cell value. Off by default; needs a written reason shown to the person verbatim; asks every time. |
+| `sample_rows` | The *only* route to a raw cell value. Not even registered below the *Raw* trust level; needs a written reason shown to the person verbatim; asks every time. |
 | `clear_workspace` | Destructive. Needs an explicit `confirm` flag **and** a human decision. |
 
 ### Tools appear and disappear with the app's state
 
 Registration is driven by workspace state, firing `toolchange`. On an empty
-page an agent is offered two tools. Load a dataset and seven more appear. Add a
+page an agent is offered two tools. Load a dataset and six more appear. Add a
 report block and the block-editing tools appear. The menu always describes what
 the app can actually do right now, so an agent never proposes an action that
 cannot work.
 
-### The human owns the guardrails
+### The privacy boundary is a dial, and it changes the agent's tools
 
-`minGroupSize` (k-anonymity) and raw-row access are read from the workspace on
+The left rail has a three-position **trust level**. It is not a preference the
+tools consult; it decides which tools are registered with the browser at all.
+
+| Level | What the agent is offered | What can leave the tab |
+| --- | --- | --- |
+| **Sealed** | `list_datasets`, `add_note`, `clear_workspace` — 3 tools | Nothing derived from the data |
+| **Aggregates** *(default)* | + `describe_columns`, `query_dataset`, `detect_anomalies`, `add_chart`, `set_report_filter` — 8 tools | Aggregates only, under `minGroupSize` |
+| **Raw** | + `sample_rows` — 9 tools | Up to 5 rows, each request approved by you |
+
+Move the dial and the tools are registered or unregistered on the spot,
+through the same `toolchange` path that tracks datasets and report blocks. An
+agent watching `toolchange` sees its menu shrink or grow; the Tool Inspector
+shows the count change; `list_datasets` reports the level in force. A call that
+arrives in the moment between the dial moving and the tool being withdrawn is
+refused by the runner (`tool_unavailable`), and a `sample_rows` request already
+waiting on your decision is withdrawn with the tool.
+
+### The human owns the boundary
+
+The trust level and `minGroupSize` (k-anonymity) are read from the workspace on
 every call and **cannot be set by a tool argument**. An agent that tries to pass
-`minGroupSize` is rejected for an unexpected property. Group by a
-high-cardinality column with the threshold raised and the small groups collapse
-into a suppressed count instead of enumerating individuals.
+`minGroupSize` or `trustLevel` is rejected for an unexpected property. Group by
+a high-cardinality column with the threshold raised and the small groups
+collapse into a suppressed count instead of enumerating individuals.
 
 ---
 
 ## The egress ledger
 
-Every tool call is itemised: risk class, characters the agent received, raw rows
-released, and whether the output was truncated. Refusals are listed too — seeing
-that an agent asked for something and was turned down is as informative as
-seeing what it got.
+One line sums it up — **`955 B kept local · 1.2 KB released`** — the bytes of
+source data held in this tab against the bytes of tool output that have ever
+left it. Below that, every tool call is itemised: risk class, characters the
+agent received, raw rows released, and whether the output was truncated.
+Refusals are listed too — seeing that an agent asked for something and was
+turned down is as informative as seeing what it got.
 
 It turns "your data stays local" from a claim into a running account you can
 audit at a glance.
@@ -144,9 +178,9 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run verify       # lint + typecheck + unit tests + production build
-npm run test         # 368 unit and integration tests (Vitest)
+npm run test         # 401 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # 55 end-to-end tests against the production build
+npm run e2e          # 60 end-to-end tests against the production build
 ```
 
 `npm run e2e` needs browsers once: `npx playwright install chromium`.
@@ -178,15 +212,18 @@ header pill tells you which one you are in.
 
 **A two-minute tour, in any browser:**
 
-1. Click **or load a sample dataset**.
-2. Open the **Tool Inspector** at the bottom. Note it went from 2 tools to 9.
-3. Select `query_dataset`, press **Call**. Aggregates come back; the ledger on
-   the right records exactly how many characters the agent received.
-4. Select `sample_rows` and call it. It is **refused** — raw access is off.
-5. Tick **Allow raw row requests** in the left rail, call it again. The app
+1. Click **or load a sample dataset**. The ledger on the right now reads
+   *955 B kept local · 0 B released*.
+2. Open the **Tool Inspector** at the bottom. Note it went from 2 tools to 8,
+   and that `sample_rows` is not among them.
+3. Select `query_dataset`, press **Call**. Aggregates come back; the ledger
+   records exactly how many bytes the agent received.
+4. In the left rail, set the trust level to **Sealed**. Watch the Inspector
+   drop to 3 tools — the agent can no longer compute anything from your data.
+5. Set it to **Raw**. Nine tools; `sample_rows` has appeared. Call it. The app
    stops and asks you, quoting the agent's stated reason. Press **Don't allow**.
 6. Call it once more and press **Allow this once**. Watch the **raw rows**
-   counter in the ledger go from 0 to 2.
+   counter in the ledger go from 0 to 2, and the released bytes tick up.
 
 ---
 
@@ -196,8 +233,9 @@ header pill tells you which one you are in.
 Browser tab — the entire application. There is no server.
 ├── Dataset store       in-memory only, never serialised to the network
 ├── Query/stats engine  pure TypeScript, zero dependencies, unit tested
+├── Trust dial          decides which tools are registered at all
 ├── Tool layer          validate → gate → execute → cap output → log egress
-│      └── document.modelContext.registerTool()
+│      └── document.modelContext.registerTool() / toolchange
 ├── Report canvas       shared surface; agent and human blocks are the same
 └── Egress ledger       every character an agent has received, itemised
 ```
@@ -208,7 +246,7 @@ Inspector — so there is no laxer route for either.
 ```
 src/
   data/      CSV parsing, type inference, query engine, profiling, anomalies
-  state/     the workspace store (datasets, report, guardrails, ledger)
+  state/     the workspace store (datasets, report, trust level, ledger)
   tools/     tool definitions, JSON Schema validator, runner, WebMCP registrar
   ui/        report canvas, charts, sidebar, ledger, approval modal, inspector
   webmcp/    spec types, environment detection, local fallback implementation

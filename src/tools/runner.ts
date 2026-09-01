@@ -14,7 +14,7 @@
 import type { WorkspaceStore } from '../state/workspace'
 import { capOutput } from './output'
 import type { ToolSpec } from './types'
-import { isFailure } from './types'
+import { fail, isFailure } from './types'
 import { validateInput } from './validate'
 
 export interface RunOptions {
@@ -40,6 +40,21 @@ export async function runTool(
   const validation = validateInput(spec.inputSchema, rawInput ?? {})
   if (!validation.ok) {
     return finish(spec, workspace, validation.failure, 0)
+  }
+
+  // Registration follows state asynchronously, so a call can arrive in the
+  // moment between the trust dial moving and the tool being withdrawn. The
+  // decision that counts is the one in force when the call actually runs.
+  if (!spec.available(workspace.getState())) {
+    return finish(
+      spec,
+      workspace,
+      fail(
+        'tool_unavailable',
+        `"${spec.name}" has been withdrawn from this workspace. Call list_datasets to see what is loaded and which privacy limits are in force.`,
+      ),
+      0,
+    )
   }
 
   let outcome

@@ -16,7 +16,7 @@ import {
  * Application shell.
  *
  * Three regions, mirroring the product's three concerns:
- *   left   — the dataset that stays on this device
+ *   left   — the data that stays on this device, and the boundary around it
  *   centre — the report humans and agents build together
  *   right  — everything the agent was allowed to see
  *
@@ -50,7 +50,7 @@ export default function App() {
         <div className="brand">
           <span className="brandName">Cleanroom</span>
           <span className="brandTagline">
-            Analyse a spreadsheet with an AI agent without ever uploading it
+            Give an AI agent real power over data it is never allowed to see
           </span>
         </div>
         <div className="headerSpacer" />

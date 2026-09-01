@@ -22,6 +22,13 @@ async function loadSample(page: Page) {
   await expect(page.getByText('sample_sales.csv')).toBeVisible()
 }
 
+/** Moves the trust dial the way a person does: by clicking its label. */
+async function setTrust(page: Page, level: 'sealed' | 'aggregates' | 'raw') {
+  const label = { sealed: 'Sealed', aggregates: 'Aggregates', raw: 'Raw' }[level]
+  await page.getByTestId('trust-dial').getByText(label, { exact: true }).click()
+  await expect(page.getByTestId(`trust-${level}`)).toBeChecked()
+}
+
 /** Reads the tools exactly as an agent discovers them. */
 async function publishedTools(page: Page) {
   return page.evaluate(async () => {
@@ -61,9 +68,12 @@ test.describe('published metadata', () => {
     page,
   }) => {
     await loadSample(page)
+    // Raw publishes the full data-tool set; a note publishes the block editors.
+    await setTrust(page, 'raw')
+    await call(page, 'add_note', { markdown: 'A note, so the block editors exist.' })
     const tools = await publishedTools(page)
 
-    expect(tools.length).toBeGreaterThanOrEqual(9)
+    expect(tools.length).toBe(11)
     for (const tool of tools) {
       expect(tool.name.length, tool.name).toBeLessThanOrEqual(30)
       expect(tool.description.length, tool.name).toBeLessThanOrEqual(500)
@@ -88,6 +98,8 @@ test.describe('published metadata', () => {
     page,
   }) => {
     await loadSample(page)
+    // sample_rows is only published at the raw level.
+    await setTrust(page, 'raw')
     const byName = new Map(
       (await publishedTools(page)).map((tool) => [tool.name, tool]),
     )
@@ -217,17 +229,92 @@ test.describe('execution contract', () => {
 })
 
 test.describe('the human gate cannot be bypassed through the interface', () => {
-  test('raw access off: refused without ever prompting', async ({ page }) => {
+  test('below raw: the tool is not published, so there is nothing to call', async ({
+    page,
+  }) => {
     await loadSample(page)
+
+    const names = (await publishedTools(page)).map((tool) => tool.name)
+    expect(names).not.toContain('sample_rows')
 
     const result = await call(page, 'sample_rows', {
       dataset: 'sample_sales',
       rows: 5,
       reason: 'I would like to read the underlying records.',
     })
+    expect(result).toEqual({ __missing: true })
+    await expect(page.getByTestId('approval-modal')).toBeHidden()
+    await expect(page.getByTestId('rows-released')).toHaveText('0')
+  })
 
-    const error = (result.parsed as { error?: Record<string, unknown> }).error
-    expect(error?.code).toBe('raw_access_disabled')
+  test('the trust dial changes the published tool list live, with toolchange', async ({
+    page,
+  }) => {
+    await loadSample(page)
+
+    await page.evaluate(() => {
+      ;(window as unknown as { __toolchanges: number }).__toolchanges = 0
+      document.modelContext!.addEventListener('toolchange', () => {
+        ;(window as unknown as { __toolchanges: number }).__toolchanges += 1
+      })
+    })
+
+    await setTrust(page, 'sealed')
+    await expect
+      .poll(async () => (await publishedTools(page)).map((tool) => tool.name).sort())
+      .toEqual(['add_note', 'clear_workspace', 'list_datasets'])
+
+    await setTrust(page, 'raw')
+    await expect
+      .poll(async () => (await publishedTools(page)).map((tool) => tool.name))
+      .toContain('sample_rows')
+    await expect
+      .poll(async () => (await publishedTools(page)).length)
+      .toBe(9)
+
+    const fired = await page.evaluate(
+      () => (window as unknown as { __toolchanges: number }).__toolchanges,
+    )
+    expect(fired).toBeGreaterThanOrEqual(2)
+  })
+
+  test('a handle captured at raw is dead once the dial comes down', async ({
+    page,
+  }) => {
+    await loadSample(page)
+    await setTrust(page, 'raw')
+
+    // An agent holds on to the tool object from an earlier getTools().
+    await page.evaluate(async () => {
+      const tools = await document.modelContext!.getTools()
+      ;(window as unknown as { __stale: unknown }).__stale = tools.find(
+        (candidate) => candidate.name === 'sample_rows',
+      )
+    })
+
+    await setTrust(page, 'aggregates')
+
+    const outcome = await page.evaluate(async () => {
+      const stale = (window as unknown as { __stale: never }).__stale
+      try {
+        const raw = await document.modelContext!.executeTool(stale, {
+          dataset: 'sample_sales',
+          reason: 'Using a handle from before the dial moved.',
+        })
+        return { raw }
+      } catch (error) {
+        return { rejected: String(error) }
+      }
+    })
+
+    // Either the interface rejects the dead handle outright, or the runner's
+    // own check refuses it. Neither path releases a row or shows a prompt.
+    if ('raw' in outcome) {
+      const parsed = JSON.parse(outcome.raw as string) as { error?: { code?: string } }
+      expect(parsed.error?.code).toMatch(/tool_unavailable|raw_access_disabled/)
+    } else {
+      expect(outcome.rejected).toMatch(/sample_rows/)
+    }
     await expect(page.getByTestId('approval-modal')).toBeHidden()
     await expect(page.getByTestId('rows-released')).toHaveText('0')
   })
@@ -236,7 +323,7 @@ test.describe('the human gate cannot be bypassed through the interface', () => {
     page,
   }) => {
     await loadSample(page)
-    await page.getByText('Allow raw row requests').click()
+    await setTrust(page, 'raw')
 
     // Start the call without awaiting it, so we can observe the suspended state.
     await page.evaluate(async () => {
@@ -266,7 +353,7 @@ test.describe('the human gate cannot be bypassed through the interface', () => {
     page,
   }) => {
     await loadSample(page)
-    await page.getByText('Allow raw row requests').click()
+    await setTrust(page, 'raw')
 
     const second = await page.evaluate(async () => {
       const tools = await document.modelContext!.getTools()
