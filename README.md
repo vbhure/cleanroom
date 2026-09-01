@@ -4,10 +4,10 @@
 
 Cleanroom is a local-first analysis workspace built for the
 [WebMCP Challenge](https://webmcp.devpost.com/). You drop a CSV into the page;
-it is parsed and held **only in your browser tab**. The page then registers a
-suite of [WebMCP](https://github.com/webmachinelearning/webmcp) tools so an AI
-agent can profile, query and chart that data — while the file itself never
-leaves your device.
+it is parsed and held **only in your browser tab**. The page then registers
+eleven [WebMCP](https://github.com/webmachinelearning/webmcp) tools so an AI
+agent can profile, query, chart and audit that data — while the file itself
+never leaves your device.
 
 > **Why WebMCP is essential here, in one sentence:** a server-side MCP
 > integration is *physically incapable* of doing this, because the data is never
@@ -16,40 +16,117 @@ leaves your device.
 
 ---
 
-## Status
+## The problem
 
-🚧 **In active development for the WebMCP Challenge** (submission deadline
-3 September 2026). This README is updated as milestones land.
+To get AI help with a spreadsheet today, you upload it. Payroll, patient lists,
+customer records, unreleased financials — all of it goes to a third party. Most
+people working with sensitive data simply can't do that, so they get no help at
+all. The alternative, an agent clicking around a BI tool by screenshot, is slow,
+brittle, and cannot do statistics.
 
-| Milestone | State |
-| --- | --- |
-| Project setup, CI, containment guarantee | ✅ Done |
-| Dataset ingest + query engine | ⏳ In progress |
-| WebMCP tool layer | ⏳ Planned |
-| Egress ledger + human approval gate | ⏳ Planned |
-| Tool Inspector | ⏳ Planned |
-| Production deployment | ⏳ Planned |
+Cleanroom removes the upload. The agent gets structured tools; the file stays
+put.
 
 ---
 
 ## The containment guarantee
 
-Cleanroom's privacy claim is not a promise — it is enforced by the browser and
-verifiable by anyone in five seconds.
+Cleanroom's privacy claim is not a promise. It is enforced by the browser and
+verifiable by anyone in about five seconds.
 
-The app ships with a Content-Security-Policy containing **`connect-src 'none'`**,
-which removes the page's ability to make *any* network request: `fetch`, `XHR`,
-`WebSocket`, `EventSource`, `sendBeacon`. It is delivered twice, as an HTTP
-header ([`netlify.toml`](./netlify.toml)) and embedded in the built markup
-([`vite.config.ts`](./vite.config.ts)), so the guarantee travels with the
-artifact regardless of where it is hosted.
+The app is served with a Content-Security-Policy containing
+**`connect-src 'none'`**, which removes the page's ability to make *any* network
+request: `fetch`, `XHR`, `WebSocket`, `EventSource`, `sendBeacon`. It is
+delivered twice — as an HTTP header ([`netlify.toml`](./netlify.toml)) and
+embedded into the built markup by a Vite plugin ([`vite.config.ts`](./vite.config.ts))
+— so the guarantee travels with the artifact regardless of where it is hosted.
 
-There is **no backend, no database, no API key and no telemetry**. The entire
-application is static files.
+There is **no backend, no database, no API key, no telemetry and no analytics**.
+The entire application is static files.
 
-This is covered by an automated end-to-end test that attempts a real network
-request from page context and asserts that the browser blocks it — see
-[`e2e/smoke.spec.ts`](./e2e/smoke.spec.ts).
+Two automated tests hold this in place: one asserts the policy is served, and
+one fires a real cross-origin `fetch` from page context and asserts the browser
+blocks it. See [`e2e/smoke.spec.ts`](./e2e/smoke.spec.ts).
+
+**This constraint has teeth.** It forced a real change: Ajv, the JSON Schema
+validator, compiles schemas with `new Function`, which `script-src 'self'`
+blocks. Rather than weaken the policy, the validator was replaced with a
+hand-written one covering exactly the schema subset the tools use. Cleanroom now
+has no runtime dependencies beyond React.
+
+---
+
+## What an agent can do here that it could not through an ordinary page
+
+| | Ordinary web page | Cleanroom via WebMCP |
+| --- | --- | --- |
+| Read the data | Upload it, or scrape pixels | Never sees the file; receives capped aggregates |
+| Compute statistics | Guesses from a rendered table | Calls a deterministic engine and gets exact numbers |
+| Find outliers | Eyeballs numbers, unreliably | `detect_anomalies` runs Tukey fences and returns findings |
+| Know what it may do | Infers from the UI | `list_datasets` returns the privacy limits in force |
+| Recover from a mistake | Retries blindly | Errors name the real columns, so it self-corrects |
+| Do something risky | Whatever the UI allows | Blocked in the app until a human clicks |
+| Be held to account | No record | Every call itemised in the egress ledger |
+
+---
+
+## The eleven tools
+
+Full reference: [`docs/TOOLS.md`](./docs/TOOLS.md).
+
+**Read-only** — return aggregates only, never a cell value:
+
+| Tool | What it does |
+| --- | --- |
+| `list_datasets` | Structure, row counts, column types, and the privacy limits in force |
+| `describe_columns` | Per-column statistics; categories named only when a column groups rather than identifies |
+| `query_dataset` | Filter, group and aggregate. **Cannot return individual rows.** |
+| `detect_anomalies` | Outliers, missing values, duplicates, type violations, date gaps, constant columns |
+
+**Reversible writes** — edit the report the human is looking at:
+
+| Tool | What it does |
+| --- | --- |
+| `add_chart` | Adds a bar or line chart, validated before it is added |
+| `add_note` | Adds a markdown note |
+| `update_report_block` | Revises a title or note body |
+| `remove_report_block` | Deletes one block |
+| `set_report_filter` | Narrows every chart of a dataset at once |
+
+**Human-gated** — suspend inside `execute` until a person decides:
+
+| Tool | What it does |
+| --- | --- |
+| `sample_rows` | The *only* route to a raw cell value. Off by default; needs a written reason shown to the person verbatim; asks every time. |
+| `clear_workspace` | Destructive. Needs an explicit `confirm` flag **and** a human decision. |
+
+### Tools appear and disappear with the app's state
+
+Registration is driven by workspace state, firing `toolchange`. On an empty
+page an agent is offered two tools. Load a dataset and seven more appear. Add a
+report block and the block-editing tools appear. The menu always describes what
+the app can actually do right now, so an agent never proposes an action that
+cannot work.
+
+### The human owns the guardrails
+
+`minGroupSize` (k-anonymity) and raw-row access are read from the workspace on
+every call and **cannot be set by a tool argument**. An agent that tries to pass
+`minGroupSize` is rejected for an unexpected property. Group by a
+high-cardinality column with the threshold raised and the small groups collapse
+into a suppressed count instead of enumerating individuals.
+
+---
+
+## The egress ledger
+
+Every tool call is itemised: risk class, characters the agent received, raw rows
+released, and whether the output was truncated. Refusals are listed too — seeing
+that an agent asked for something and was turned down is as informative as
+seeing what it got.
+
+It turns "your data stays local" from a claim into a running account you can
+audit at a glance.
 
 ---
 
@@ -64,12 +141,12 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run verify       # lint + typecheck + unit tests + production build
-npm run test         # unit and integration tests (Vitest)
+npm run test         # 366 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # end-to-end tests against the production build (Playwright)
+npm run e2e          # 41 end-to-end tests against the production build
 ```
 
-`npm run e2e` requires browsers once: `npx playwright install chromium`.
+`npm run e2e` needs browsers once: `npx playwright install chromium`.
 
 ### Production build
 
@@ -82,44 +159,102 @@ npm run preview      # serves dist/ with the production security headers
 
 ## Testing this as a judge
 
-Cleanroom works in three environments, in descending order of fidelity:
+Cleanroom works in three environments, in descending order of fidelity. The
+header pill tells you which one you are in.
 
-1. **ChatGPT Desktop's in-app browser** — WebMCP is supported natively. Requires
-   a recent desktop app build and a model with site tools enabled.
-2. **Chrome 149+ or Edge 150+** — enable
-   `chrome://flags/#enable-webmcp-testing`, or rely on the origin trial token
-   served with the deployed site.
-3. **Any other browser** — Cleanroom installs the official Apache-2.0 WebMCP
-   reference polyfill and exposes an in-app **Tool Inspector**, so every tool
-   remains discoverable and callable with its real schema and real results. The
-   header pill tells you which mode you are in.
+1. **ChatGPT Desktop's in-app browser** — WebMCP is supported natively, so
+   ChatGPT itself can discover and call the tools. Requires a recent desktop
+   build with site tools available.
+2. **Chrome 149+ or Edge 150+** — enable `chrome://flags/#enable-webmcp-testing`
+   and reload. The browser's agent sees the tools natively.
+3. **Any other browser** — Cleanroom installs its own minimal implementation of
+   the WebMCP interface and shows a banner saying so. An outside agent cannot
+   reach the tools, but the built-in **Tool Inspector** discovers them with
+   `getTools()` and calls them with `executeTool()` — the same two calls an
+   agent makes. Every schema, annotation, error and result is identical.
+
+**A two-minute tour, in any browser:**
+
+1. Click **or load a sample dataset**.
+2. Open the **Tool Inspector** at the bottom. Note it went from 2 tools to 9.
+3. Select `query_dataset`, press **Call**. Aggregates come back; the ledger on
+   the right records exactly how many characters the agent received.
+4. Select `sample_rows` and call it. It is **refused** — raw access is off.
+5. Tick **Allow raw row requests** in the left rail, call it again. The app
+   stops and asks you, quoting the agent's stated reason. Press **Don't allow**.
+6. Call it once more and press **Allow this once**. Watch the **raw rows**
+   counter in the ledger go from 0 to 2.
 
 ---
 
 ## Architecture
 
 ```
-Browser tab (the entire application — there is no server)
+Browser tab — the entire application. There is no server.
 ├── Dataset store       in-memory only, never serialised to the network
 ├── Query/stats engine  pure TypeScript, zero dependencies, unit tested
 ├── Tool layer          validate → gate → execute → cap output → log egress
 │      └── document.modelContext.registerTool()
-├── Report canvas       shared surface humans and agents both edit
-└── Egress ledger       every byte an agent has received, itemised
+├── Report canvas       shared surface; agent and human blocks are the same
+└── Egress ledger       every character an agent has received, itemised
 ```
 
-See [`docs/`](./docs) for the architecture notes, threat model and tool
-reference.
+One execution path serves both consumers — the browser's agent and the Tool
+Inspector — so there is no laxer route for either.
+
+```
+src/
+  data/      CSV parsing, type inference, query engine, profiling, anomalies
+  state/     the workspace store (datasets, report, guardrails, ledger)
+  tools/     tool definitions, JSON Schema validator, runner, WebMCP registrar
+  ui/        report canvas, charts, sidebar, ledger, approval modal, inspector
+  webmcp/    spec types, environment detection, local fallback implementation
+```
+
+Further reading: [`docs/SECURITY.md`](./docs/SECURITY.md) for the threat model,
+[`docs/TOOLS.md`](./docs/TOOLS.md) for the tool reference.
 
 ---
 
-## Tech
+## Deployment
 
-TypeScript · React 19 · Vite 8 · Vitest · Playwright · WebMCP. No backend, no
-runtime dependencies beyond React and Ajv (JSON Schema validation).
+Static hosting, no environment variables, no secrets.
+
+```bash
+npm run build   # publish dist/
+```
+
+`netlify.toml` is committed with the build command, publish directory and the
+security headers. Importing this repository into Netlify needs no additional
+configuration.
+
+---
+
+## Limitations
+
+Stated plainly, because a tool that overstates what it guarantees is worse than
+one that does less.
+
+- **Aggregates do reach the model.** The *file* never leaves your browser, but
+  the answers derived from it do. That is the point of the ledger: so you can
+  see exactly what left, rather than being asked to trust a claim.
+- **A determined agent could still probe.** Repeated narrow queries leak more
+  than one broad one. `minGroupSize`, the row and character caps, and the ledger
+  raise the cost and make it visible; they do not make it impossible.
+- **Date parsing is deliberately strict.** ISO-like formats only. `03/04/2026`
+  is ambiguous between two continents, so it stays text rather than being
+  guessed at.
+- **Percentages are not parsed as numbers**, because `50%` could mean 50 or 0.5
+  and guessing would corrupt every average computed from it.
+- **100,000 rows** are loaded, then the file is truncated with a warning, to
+  keep the tab responsive.
+- **Charts are bar and line only.** Two shapes done properly.
+- **Tools are same-origin.** `exposedTo` is deliberately left unset.
+- **The tools live in the top-level page.** ChatGPT's browser does not support
+  the declarative form API or tools registered in iframes, so neither is used.
 
 ---
 
 ## License
 
-[MIT](./LICENSE) © 2026
+[MIT](./LICENSE)
