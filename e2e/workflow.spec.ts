@@ -358,6 +358,59 @@ test.describe('the shared report', () => {
     await expect(page.locator('.markdown img')).toHaveCount(0)
   })
 
+  test('the canvas is genuinely two-sided: both authors, one surface', async ({
+    page,
+  }) => {
+    await loadSample(page)
+    await openInspector(page)
+
+    // The agent writes.
+    await callTool(page, 'add_note', {
+      title: 'Agent summary',
+      markdown: 'Revenue is concentrated in **East**.',
+    })
+    await expect(page.getByText('Added by agent')).toBeVisible()
+
+    // The person writes, on the same canvas, badged as theirs.
+    await page.getByTestId('add-human-note').click()
+    const editor = page.locator('[data-testid^="note-input-"]')
+    await editor.fill('I disagree — West is growing faster quarter on quarter.')
+    await page.locator('[data-testid^="save-"]').click()
+
+    await expect(page.getByText('Added by you')).toBeVisible()
+    await expect(page.getByText('West is growing faster')).toBeVisible()
+    await expect(page.getByText('Added by agent')).toBeVisible()
+
+    // And the person can edit what the agent wrote, in place.
+    const blocks = page.locator('[data-testid^="block-"]')
+    await expect(blocks).toHaveCount(2)
+    await blocks.first().getByRole('button', { name: 'Edit' }).click()
+    const agentEditor = page.locator('[data-testid^="note-input-"]')
+    await agentEditor.fill('Revenue is concentrated in East, but only this year.')
+    await page.locator('[data-testid^="save-"]').click()
+
+    await expect(page.getByText('but only this year')).toBeVisible()
+    // Editing does not launder the authorship.
+    await expect(page.getByText('Added by agent')).toBeVisible()
+  })
+
+  test('a human note is still rendered as text, never as markup', async ({
+    page,
+  }) => {
+    await loadSample(page)
+
+    await page.getByTestId('add-human-note').click()
+    await page
+      .locator('[data-testid^="note-input-"]')
+      .fill('<img src=x onerror="window.__pwned = true"> and [a link](javascript:alert(1))')
+    await page.locator('[data-testid^="save-"]').click()
+
+    expect(await page.evaluate(() => (window as unknown as { __pwned?: boolean }).__pwned))
+      .toBeUndefined()
+    await expect(page.locator('.report img')).toHaveCount(0)
+    await expect(page.locator('.report a')).toHaveCount(0)
+  })
+
   test('a human can delete what an agent added', async ({ page }) => {
     await loadSample(page)
     await openInspector(page)

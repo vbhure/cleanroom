@@ -159,6 +159,20 @@ threshold doing its job, in the state you first meet the page in.
 
 ---
 
+## The report is one canvas, with two authors
+
+Everything either side creates lands on the same surface, and each block is
+badged with who made it. The agent adds charts and notes through `add_chart`
+and `add_note`; the person writes their own notes, edits the agent's wording in
+place, and removes either. Editing does not launder the authorship — a note the
+agent started still says *Added by agent* after you have rewritten it, because
+that is the honest record.
+
+There is no second, human-only code path: `update_report_block` and the Edit
+button call the same store method, and every chart recomputes from the local
+data on render, so changing the report filter or the group-size threshold
+updates the agent's charts and yours together.
+
 ## The egress ledger
 
 One line sums it up — **`955 B kept local · 1.2 KB released`** — the bytes of
@@ -186,7 +200,7 @@ npm run dev          # http://localhost:5173
 npm run verify       # lint + typecheck + unit tests + production build
 npm run test         # 433 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # 66 end-to-end tests against the production build
+npm run e2e          # 68 end-to-end tests against the production build
 ```
 
 `npm run e2e` needs browsers once: `npx playwright install chromium`.

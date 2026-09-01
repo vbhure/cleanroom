@@ -98,11 +98,19 @@ Four things make the WebMCP usage non-trivial rather than decorative:
 The person supplies data they were never willing to upload and decides, with
 one control, how much power the agent has over it. The agent explores it, runs
 statistics it could never do reliably by reading a rendered table, and builds
-a report. Charts and notes it creates land on the same canvas the person edits,
-badged by author, removable by either. When the agent needs something
-genuinely sensitive, the application stops it and asks — quoting the agent's
-own stated reason back to the person — and the person can change their mind
-mid-session by turning the dial, which the agent sees as its tools changing.
+a report.
+
+**The canvas is genuinely two-sided.** Charts and notes the agent creates land
+on the same surface the person writes on, each block badged with who made it.
+The person can write their own notes, edit the agent's wording in place, and
+remove either — and editing does not launder the authorship, so the badge stays
+honest. An agent's `update_report_block` and a person's Edit button are the same
+operation on the same store.
+
+When the agent needs something genuinely sensitive, the application stops it and
+asks — quoting the agent's own stated reason back to the person — and the person
+can change their mind mid-session by turning the dial, which the agent sees as
+its own tools changing.
 
 Neither could do this alone: the agent cannot see the file, and the person does
 not want to write the queries.
@@ -125,7 +133,7 @@ the production build. Rather than weaken the policy we replaced Ajv with a
 hand-written validator covering exactly the schema subset the tools use.
 Cleanroom now has **no runtime dependencies beyond React**.
 
-**499 automated tests** — 433 unit and integration, 66 end-to-end. The E2E suite
+**501 automated tests** — 433 unit and integration, 68 end-to-end. The E2E suite
 drives `document.modelContext.getTools()` and `executeTool()` from page context
 without importing our source, so it verifies what an agent actually receives —
 including that a tool handle captured at *Raw* is dead once the dial comes down,
@@ -213,7 +221,7 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Solo entry permitted | ✅ | Official rules | — |
 | WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`, registered and withdrawn by trust level; `src/tools/` | — |
 | Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
-| Functions consistently on its platform | ✅ | 66 E2E tests, 13 of them across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
+| Functions consistently on its platform | ✅ | 68 E2E tests, 13 of them across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
 | Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
 | Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
 | Complete source + run instructions | ✅ | README: install, verify, build, deploy; CI proves a clean clone builds and passes | — |

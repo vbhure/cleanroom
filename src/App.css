@@ -517,6 +517,21 @@
   color: var(--text-faint);
 }
 
+.reportActions {
+  margin: 0;
+}
+
+.blockActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0 0;
+}
+
+.noteEditor .toolArgs {
+  width: 100%;
+}
+
 .blockProblem {
   margin: 0;
   padding: 12px;

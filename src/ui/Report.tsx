@@ -10,12 +10,12 @@
  * without anything being re-fetched — there is nothing to fetch.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { runQuery } from '../data/query'
 import { buildSampleDataset } from '../data/sample'
 import type { QueryResult } from '../data/query'
 import { aggregationName } from '../data/query'
-import { workspace } from '../state/workspace'
+import { createId, workspace } from '../state/workspace'
 import type { ChartBlock, NoteBlock, ReportBlock } from '../state/workspace'
 import { Chart } from './Chart'
 import type { ChartPoint } from './Chart'
@@ -35,8 +35,40 @@ export function Report() {
       {state.blocks.map((block) => (
         <BlockFrame key={block.id} block={block} />
       ))}
+      <ReportActions />
     </div>
   )
+}
+
+/**
+ * The person's side of the shared canvas. Without this the badge on every
+ * block would only ever read "Added by agent", and "a report humans and agents
+ * build together" would be a claim the app does not keep.
+ */
+function ReportActions() {
+  return (
+    <p className="reportActions">
+      <button
+        type="button"
+        className="secondaryButton"
+        onClick={() => addHumanNote()}
+        data-testid="add-human-note"
+      >
+        Write a note
+      </button>
+    </p>
+  )
+}
+
+function addHumanNote(): void {
+  workspace.addBlock({
+    id: createId('block'),
+    kind: 'note',
+    title: 'My note',
+    markdown: '',
+    author: 'human',
+    createdAt: Date.now(),
+  })
 }
 
 /**
@@ -50,9 +82,19 @@ function EmptyReport({ hasData }: { hasData: boolean }) {
       <div className="reportEmpty">
         <h2>Nothing on the canvas yet</h2>
         <p>
-          Ask an agent to explore the data, or add a chart yourself. Anything
+          Ask an agent to explore the data, or start writing yourself. Anything
           either of you creates appears here, badged with who made it, and
-          either of you can change it.
+          either of you can edit or remove it.
+        </p>
+        <p className="reportEmptyActions">
+          <button
+            type="button"
+            className="secondaryButton"
+            onClick={() => addHumanNote()}
+            data-testid="add-human-note"
+          >
+            Write a note
+          </button>
         </p>
       </div>
     )
@@ -118,8 +160,77 @@ function BlockFrame({ block }: { block: ReportBlock }) {
   )
 }
 
+/**
+ * A note is editable by the person whoever wrote it. That is the collaboration:
+ * the agent proposes wording, the person corrects it in place, and the block
+ * keeps its authorship so the ledger and the badge stay honest about who
+ * started it.
+ */
 function NoteBlockBody({ block }: { block: NoteBlock }) {
-  return <Markdown source={block.markdown} />
+  const [draft, setDraft] = useState<string | null>(
+    // A note the person just created opens ready to type into.
+    block.author === 'human' && block.markdown === '' ? '' : null,
+  )
+
+  if (draft === null) {
+    return (
+      <>
+        {block.markdown ? (
+          <Markdown source={block.markdown} />
+        ) : (
+          <p className="blockProblem">This note is empty.</p>
+        )}
+        <p className="blockActions">
+          <button
+            type="button"
+            className="linkButton"
+            onClick={() => setDraft(block.markdown)}
+            data-testid={`edit-${block.id}`}
+          >
+            Edit
+          </button>
+        </p>
+      </>
+    )
+  }
+
+  return (
+    <div className="noteEditor">
+      <label className="visually-hidden" htmlFor={`note-${block.id}`}>
+        Note text
+      </label>
+      <textarea
+        id={`note-${block.id}`}
+        className="toolArgs"
+        rows={4}
+        value={draft}
+        autoFocus
+        spellCheck
+        onChange={(event) => setDraft(event.target.value)}
+        data-testid={`note-input-${block.id}`}
+      />
+      <p className="blockActions">
+        <button
+          type="button"
+          className="secondaryButton"
+          onClick={() => {
+            workspace.updateBlock(block.id, { markdown: draft })
+            setDraft(null)
+          }}
+          data-testid={`save-${block.id}`}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className="linkButton"
+          onClick={() => setDraft(null)}
+        >
+          Cancel
+        </button>
+      </p>
+    </div>
+  )
 }
 
 function ChartBlockBody({ block }: { block: ChartBlock }) {
