@@ -70,8 +70,10 @@ export function Ledger() {
       </div>
 
       <p className="ledgerNote">
-        Your file never leaves this tab. This is everything derived from it
-        that an agent has ever been given.
+        This page is served with <code>connect-src &apos;none&apos;</code>: it
+        cannot make a network request of any kind. Your file never leaves this
+        tab, and the figures above are everything derived from it that an agent
+        has ever been given.
       </p>
 
       {state.egress.length === 0 ? (

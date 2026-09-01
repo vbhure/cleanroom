@@ -48,10 +48,11 @@ export default function App() {
     <div className="app">
       <header className="appHeader">
         <div className="brand">
-          <span className="brandName">Cleanroom</span>
-          <span className="brandTagline">
+          {/* The page's one h1. The regions below are its sections. */}
+          <h1 className="brandName">Cleanroom</h1>
+          <p className="brandTagline">
             Give an AI agent real power over data it is never allowed to see
-          </span>
+          </p>
         </div>
         <div className="headerSpacer" />
         <span
@@ -76,9 +77,11 @@ export default function App() {
 
       {!env.agentReachable && env.mode !== 'none' ? (
         <p className="appBanner appBannerInfo">
-          This browser has no native WebMCP, so an outside agent cannot see these
-          tools. Everything still works — open the Tool Inspector below to
-          discover and call each tool exactly as an agent would.
+          <strong>Every tool on this page is live.</strong> Open the Tool
+          Inspector below to discover and call each one through the real{' '}
+          <code>document.modelContext</code> interface, exactly as an agent
+          would. This browser has no native WebMCP yet, so an agent outside the
+          page cannot see them — nothing else changes.
         </p>
       ) : null}
 

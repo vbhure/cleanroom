@@ -352,11 +352,121 @@ describe('runQuery — filtering', () => {
       run({
         aggregate: [{ op: 'sum', column: 'amount' }],
         where: [{ column: 'region', op: 'eq', value: 'Nowhere' }],
+        minGroupSize: 1,
       }),
     )
 
     expect(result.matchedRows).toBe(0)
     expect(result.rows[0]?.[0]).toBeNull()
+  })
+
+  it('will not say whether nobody matched or one person did', () => {
+    // Both answers identify the individual the filter names: "no rows match
+    // this email" and "one row matches" are the same disclosure with opposite
+    // signs. Above the threshold they are indistinguishable to the agent.
+    const absent = expectOk(
+      run({
+        aggregate: [{ op: 'count' }],
+        where: [{ column: 'rep', op: 'eq', value: 'Nobody' }],
+        minGroupSize: 3,
+      }),
+    )
+    const present = expectOk(
+      run({
+        aggregate: [{ op: 'count' }],
+        where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    expect(absent.rows).toEqual([])
+    expect(present.rows).toEqual([])
+    expect(absent.matchedRowsIdentifying).toBe(true)
+    expect(present.matchedRowsIdentifying).toBe(true)
+  })
+})
+
+describe('runQuery — the query-set-size restriction', () => {
+  // The threshold used to apply only when grouping, on the reasoning that "an
+  // ungrouped total reveals nothing about any individual". That is true of the
+  // whole file and false the moment a `where` narrows it: filter down to one
+  // person and the ungrouped aggregate *is* that person's cell value.
+
+  it('suppresses an ungrouped aggregate that a filter narrowed below the threshold', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+        aggregate: [{ op: 'max', column: 'amount' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    // Dev has exactly one row, whose amount is 900. It must not come back.
+    expect(result.rows).toEqual([])
+    expect(JSON.stringify(result.rows)).not.toContain('900')
+    expect(result.suppressedGroups).toBe(1)
+    expect(result.suppressedRows).toBe(1)
+  })
+
+  it('still allows an aggregate over the whole file, which describes nobody', () => {
+    const result = expectOk(runQuery(sales(), { ...countAll, minGroupSize: 100 }))
+
+    expect(result.rows).toEqual([[7]])
+    expect(result.matchedRowsIdentifying).toBe(false)
+  })
+
+  it('allows a filter that leaves at least the threshold behind', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'region', op: 'eq', value: 'North' }],
+        aggregate: [{ op: 'count' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    expect(result.rows).toEqual([[3]])
+    expect(result.matchedRowsIdentifying).toBe(false)
+  })
+
+  it('marks the matched-row count identifying so the tool layer can withhold it', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+        aggregate: [{ op: 'count' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    expect(result.matchedRows).toBe(1)
+    expect(result.matchedRowsIdentifying).toBe(true)
+  })
+
+  it('leaves everything alone when the person turns the threshold off', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+        aggregate: [{ op: 'max', column: 'amount' }],
+        minGroupSize: 1,
+      }),
+    )
+
+    expect(result.rows).toEqual([[900]])
+    expect(result.matchedRowsIdentifying).toBe(false)
+  })
+
+  it('cannot be walked around by combining a filter with a grouping', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'region', op: 'eq', value: 'North' }],
+        groupBy: ['rep'],
+        aggregate: [{ op: 'sum', column: 'amount' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    // North holds Ada twice and Bob once; neither reaches three.
+    expect(result.rows).toEqual([])
+    expect(JSON.stringify(result.rows)).not.toContain('Ada')
   })
 })
 

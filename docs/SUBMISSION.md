@@ -82,7 +82,9 @@ Four things make the WebMCP usage non-trivial rather than decorative:
 3. **The boundary cannot be moved by an argument.** The trust level and the
    k-anonymity threshold are read from the workspace on every call; an agent
    that passes `minGroupSize` or `trustLevel` is rejected for an unexpected
-   property. A call that arrives after the dial moved but before the tool was
+   property. The threshold ships at 5 rather than off, and applies to any
+   answer computed from fewer than five records however the set got small —
+   by grouping, by filtering, or by asking how many rows matched. A call that arrives after the dial moved but before the tool was
    withdrawn is refused by the runner; a raw-row request already waiting on
    the person is withdrawn with the tool.
 
@@ -123,10 +125,12 @@ the production build. Rather than weaken the policy we replaced Ajv with a
 hand-written validator covering exactly the schema subset the tools use.
 Cleanroom now has **no runtime dependencies beyond React**.
 
-**461 automated tests** — 401 unit and integration, 60 end-to-end. The E2E suite
+**499 automated tests** — 433 unit and integration, 66 end-to-end. The E2E suite
 drives `document.modelContext.getTools()` and `executeTool()` from page context
 without importing our source, so it verifies what an agent actually receives —
-including that a tool handle captured at *Raw* is dead once the dial comes down.
+including that a tool handle captured at *Raw* is dead once the dial comes down,
+and that the browser reports a `securitypolicyviolation` rather than merely
+throwing when the page attempts to reach the network.
 
 ### Who it helps — *Potential Impact*
 
@@ -209,7 +213,7 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Solo entry permitted | ✅ | Official rules | — |
 | WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`, registered and withdrawn by trust level; `src/tools/` | — |
 | Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
-| Functions consistently on its platform | ✅ | 60 E2E tests across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
+| Functions consistently on its platform | ✅ | 66 E2E tests, 13 of them across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
 | Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
 | Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
 | Complete source + run instructions | ✅ | README: install, verify, build, deploy; CI proves a clean clone builds and passes | — |

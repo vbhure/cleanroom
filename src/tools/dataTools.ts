@@ -23,6 +23,14 @@ import { fail } from './types'
 /** Raw rows an agent may request in one approved call. */
 export const MAX_SAMPLE_ROWS = 5
 
+/**
+ * Ceiling on any array an agent may pass. No real query needs fifty filters or
+ * fifty group-by columns, and without a bound a single call can hand the page
+ * an array long enough to lock the tab — a denial of service the person
+ * experiences as the app freezing.
+ */
+export const MAX_LIST_ITEMS = 50
+
 const RAW_ACCESS_DISABLED = fail(
   'raw_access_disabled',
   'Raw row access is switched off for this workspace: the trust level is below "raw". Only the person can change that. Use query_dataset for aggregates instead.',
@@ -131,7 +139,11 @@ export const listDatasets: ToolSpec = {
   description:
     'List the datasets the person has loaded into this page, with row counts, column names and column types. Returns no cell values. Call this first to learn what data exists and which privacy limits are in force.',
   risk: 'read',
-  annotations: { readOnlyHint: true },
+  annotations: {
+    readOnlyHint: true,
+    // Dataset and column names come from the person's file.
+    untrustedContentHint: true,
+  },
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   available: () => true,
   execute: (_input, { workspace }) => {
@@ -170,7 +182,11 @@ export const describeColumns: ToolSpec = {
   description:
     'Statistical profile of one or more columns: type, null count, distinct count, and for numbers the min, max, mean, median and standard deviation. Categories are named only when a column groups rows rather than identifying them. Use this to understand a dataset before querying it.',
   risk: 'read',
-  annotations: { readOnlyHint: true },
+  annotations: {
+    readOnlyHint: true,
+    // Named categories are verbatim cell values.
+    untrustedContentHint: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -178,6 +194,7 @@ export const describeColumns: ToolSpec = {
       columns: {
         type: 'array',
         items: { type: 'string' },
+        maxItems: MAX_LIST_ITEMS,
         description: 'Columns to profile. Omit to profile all of them.',
       },
     },
@@ -215,7 +232,11 @@ export const queryDataset: ToolSpec = {
   description:
     'Run an aggregate query: filter rows, group by columns, and compute counts, sums, averages, medians, minimums or maximums. Every query must aggregate — this tool cannot return individual rows. Results are capped and small groups may be suppressed to protect individuals.',
   risk: 'read',
-  annotations: { readOnlyHint: true },
+  annotations: {
+    readOnlyHint: true,
+    // Group keys are verbatim cell values.
+    untrustedContentHint: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -223,22 +244,26 @@ export const queryDataset: ToolSpec = {
       where: {
         type: 'array',
         items: FILTER_SCHEMA,
+        maxItems: MAX_LIST_ITEMS,
         description: 'Filters, combined with AND. Omit to use every row.',
       },
       groupBy: {
         type: 'array',
         items: { type: 'string' },
+        maxItems: MAX_LIST_ITEMS,
         description: 'Columns to group by. Omit for a single total over all rows.',
       },
       aggregate: {
         type: 'array',
         items: AGGREGATION_SCHEMA,
         minItems: 1,
+        maxItems: MAX_LIST_ITEMS,
         description: 'One or more aggregates to compute. At least one required.',
       },
       orderBy: {
         type: 'array',
         items: ORDER_BY_SCHEMA,
+        maxItems: MAX_LIST_ITEMS,
         description: 'Sort order, applied to the result columns.',
       },
       limit: {
@@ -278,7 +303,12 @@ export const queryDataset: ToolSpec = {
         dataset: resolved.dataset.id,
         columns: result.columns,
         rows: result.rows,
-        matchedRows: result.matchedRows,
+        // The number of rows a filter matched is itself a disclosure when it
+        // is small: "exactly one record matches" identifies that record as
+        // surely as returning it would.
+        ...(result.matchedRowsIdentifying
+          ? { matchedRows: `fewer than ${spec.minGroupSize}` }
+          : { matchedRows: result.matchedRows }),
         totalGroups: result.totalGroups,
         ...(result.truncated ? { truncated: true } : {}),
         ...(result.suppressedGroups > 0
@@ -286,7 +316,7 @@ export const queryDataset: ToolSpec = {
               suppressed: {
                 groups: result.suppressedGroups,
                 rows: result.suppressedRows,
-                reason: `Groups smaller than ${spec.minGroupSize} rows are hidden to protect individuals.`,
+                reason: `Results computed from fewer than ${spec.minGroupSize} records are hidden to protect individuals. Widen the query.`,
               },
             }
           : {}),
@@ -302,7 +332,11 @@ export const detectAnomaliesTool: ToolSpec = {
   description:
     'Run deterministic data-quality checks and return the findings: statistical outliers, high missing-value rates, duplicate rows, cells that do not match their column type, gaps in date coverage, and columns with only one value. Findings are counts and bounds, never cell values.',
   risk: 'read',
-  annotations: { readOnlyHint: true },
+  annotations: {
+    readOnlyHint: true,
+    // Findings quote column names from the file.
+    untrustedContentHint: true,
+  },
   inputSchema: {
     type: 'object',
     properties: {
@@ -310,11 +344,13 @@ export const detectAnomaliesTool: ToolSpec = {
       columns: {
         type: 'array',
         items: { type: 'string' },
+        maxItems: MAX_LIST_ITEMS,
         description: 'Columns to check. Omit to check all of them.',
       },
       kinds: {
         type: 'array',
         items: { type: 'string', enum: ALL_ANOMALY_KINDS },
+        maxItems: MAX_LIST_ITEMS,
         description: 'Checks to run. Omit to run every check.',
       },
     },
@@ -374,6 +410,7 @@ export const sampleRows: ToolSpec = {
       columns: {
         type: 'array',
         items: { type: 'string' },
+        maxItems: MAX_LIST_ITEMS,
         description: 'Limit the request to these columns. Strongly encouraged.',
       },
       reason: {
@@ -447,10 +484,20 @@ export const sampleRows: ToolSpec = {
       )
     }
 
-    // The person may have turned the dial down while the prompt was open.
-    // Their most recent decision about the workspace wins over the click.
+    // The person may have changed their mind while the prompt was open, by
+    // turning the dial down or by removing the file outright. Their most
+    // recent decision about the workspace wins over the click, and the
+    // dataset captured before the wait must not outlive it.
     if (!trustAllows(workspace.getState().trustLevel, 'raw')) {
       return RAW_ACCESS_DISABLED
+    }
+
+    if (!workspace.getDataset(dataset.id)) {
+      return fail(
+        'unknown_dataset',
+        `"${dataset.id}" was removed from this page while the request was waiting, so there is nothing to release.`,
+        { loadedDatasets: workspace.datasetIds() },
+      )
     }
 
     const rows: unknown[][] = []

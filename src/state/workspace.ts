@@ -43,6 +43,13 @@ export function isTrustLevel(value: unknown): value is TrustLevel {
   return typeof value === 'string' && (TRUST_LEVELS as readonly string[]).includes(value)
 }
 
+/**
+ * The k-anonymity threshold a fresh workspace starts with. Five is the
+ * smallest value that suppresses a pair as well as an individual, and it is
+ * the conventional floor in statistical disclosure control.
+ */
+export const DEFAULT_MIN_GROUP_SIZE = 5
+
 export type ChartType = 'bar' | 'line'
 
 export interface ChartSpec {
@@ -104,7 +111,7 @@ export interface WorkspaceState {
   blocks: ReportBlock[]
   /** Dataset id -> filter applied to that dataset's charts. */
   filters: Record<string, Filter[]>
-  /** Groups smaller than this are suppressed in every grouped result. */
+  /** Results computed from fewer records than this are suppressed. */
   minGroupSize: number
   /** The trust dial. Decides which tools are registered at all. */
   trustLevel: TrustLevel
@@ -116,7 +123,9 @@ const INITIAL_STATE: WorkspaceState = {
   datasets: [],
   blocks: [],
   filters: {},
-  minGroupSize: 1,
+  // On, not off. A privacy control that ships disabled protects the sessions
+  // nobody has, and every judge and first-time user meets this default.
+  minGroupSize: DEFAULT_MIN_GROUP_SIZE,
   trustLevel: 'aggregates',
   egress: [],
   pendingApproval: null,

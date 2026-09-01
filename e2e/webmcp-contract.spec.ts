@@ -121,6 +121,10 @@ test.describe('published metadata', () => {
     expect(byName.get('sample_rows')?.annotations?.untrustedContentHint).toBe(true)
     expect(byName.get('add_note')?.annotations?.untrustedContentHint).toBe(true)
     expect(byName.get('list_datasets')?.annotations?.untrustedContentHint).toBe(
+      true,
+    )
+    // add_chart returns only counts, so it carries no file text.
+    expect(byName.get('add_chart')?.annotations?.untrustedContentHint ?? false).toBe(
       false,
     )
   })
@@ -177,6 +181,11 @@ test.describe('execution contract', () => {
     })
     await expect(page.getByText('wide.csv')).toBeVisible()
 
+    // Every group here holds one row, so the shipped threshold suppresses the
+    // lot — correctly, and it would leave nothing to trim. This test is about
+    // the output budget, so the person turns the threshold off first.
+    await page.getByLabel('Minimum group size').fill('1')
+
     const result = await call(page, 'query_dataset', {
       dataset: 'wide',
       groupBy: ['a_long_group_key_column'],
@@ -224,7 +233,9 @@ test.describe('execution contract', () => {
       aggregate: { op: 'sum', column: 'rep' },
     })
 
-    await expect(page.getByText('The report is empty')).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Nothing on the canvas yet' }),
+    ).toBeVisible()
   })
 })
 

@@ -75,11 +75,16 @@ class LocalModelContext extends EventTarget implements ModelContext {
       return Promise.resolve(undefined)
     }
 
-    this.tools.set(tool.name, { tool, exposedTo: options.exposedTo })
+    const entry: Entry = { tool, exposedTo: options.exposedTo }
+    this.tools.set(tool.name, entry)
 
     options.signal?.addEventListener(
       'abort',
       () => {
+        // Unregister *this* registration, not whatever currently holds the
+        // name. A late abort from a replaced registration must not tear down
+        // the live one that took its place.
+        if (this.tools.get(tool.name) !== entry) return
         this.tools.delete(tool.name)
         this.dispatchEvent(new Event('toolchange'))
       },

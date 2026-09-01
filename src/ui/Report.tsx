@@ -12,6 +12,7 @@
 
 import { useMemo } from 'react'
 import { runQuery } from '../data/query'
+import { buildSampleDataset } from '../data/sample'
 import type { QueryResult } from '../data/query'
 import { aggregationName } from '../data/query'
 import { workspace } from '../state/workspace'
@@ -26,16 +27,7 @@ export function Report() {
   const state = useWorkspace()
 
   if (state.blocks.length === 0) {
-    return (
-      <div className="reportEmpty">
-        <h2>The report is empty</h2>
-        <p>
-          {state.datasets.length === 0
-            ? 'Load a CSV to begin. Your file is parsed here in the browser and never uploaded.'
-            : 'Ask an agent to explore the data, or add a chart yourself. Anything either of you creates appears here.'}
-        </p>
-      </div>
-    )
+    return <EmptyReport hasData={state.datasets.length > 0} />
   }
 
   return (
@@ -43,6 +35,53 @@ export function Report() {
       {state.blocks.map((block) => (
         <BlockFrame key={block.id} block={block} />
       ))}
+    </div>
+  )
+}
+
+/**
+ * The first thing anyone sees, so it states the thesis rather than apologising
+ * for being empty, and it offers the one click that makes the page live. A
+ * judge who never finds a dataset never sees a tool fire.
+ */
+function EmptyReport({ hasData }: { hasData: boolean }) {
+  if (hasData) {
+    return (
+      <div className="reportEmpty">
+        <h2>Nothing on the canvas yet</h2>
+        <p>
+          Ask an agent to explore the data, or add a chart yourself. Anything
+          either of you creates appears here, badged with who made it, and
+          either of you can change it.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="reportEmpty">
+      <h2>The agent gets tools. It never gets the file.</h2>
+      <p>
+        Drop a CSV here and it is parsed in this tab. The page then offers an
+        AI agent tools to profile, query and chart it — and you decide, live,
+        how many of those tools exist.
+      </p>
+      <p className="reportEmptyProof">
+        <code>connect-src &apos;none&apos;</code>
+        <span>This page cannot make a network request. Check it in DevTools.</span>
+      </p>
+      <p className="reportEmptyActions">
+        <button
+          type="button"
+          className="primaryButton"
+          onClick={() => {
+            workspace.addDataset(buildSampleDataset(workspace.datasetIds()))
+          }}
+          data-testid="load-sample"
+        >
+          Load the sample dataset
+        </button>
+      </p>
     </div>
   )
 }

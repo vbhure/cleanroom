@@ -123,6 +123,25 @@ describe('tool annotations', () => {
     }
   })
 
+  it('flags every tool whose output can carry text from the file', () => {
+    // Group keys, named categories, column names and dataset names are all
+    // verbatim strings out of a file this page did not author. A tool that
+    // hands one to a model without the hint is understating what it returns.
+    const carriesFileText = [
+      'list_datasets',
+      'describe_columns',
+      'query_dataset',
+      'detect_anomalies',
+      'sample_rows',
+      'add_note',
+    ]
+
+    for (const name of carriesFileText) {
+      const tool = ALL_TOOLS.find((candidate) => candidate.name === name)
+      expect(tool?.annotations.untrustedContentHint, name).toBe(true)
+    }
+  })
+
   it('flags tools that return content derived from the user file as untrusted', () => {
     const untrusted = ALL_TOOLS.filter(
       (tool) => tool.annotations.untrustedContentHint === true,

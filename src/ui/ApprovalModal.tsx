@@ -18,17 +18,64 @@ import { useWorkspace } from './useWorkspace'
 export function ApprovalModal() {
   const { pendingApproval } = useWorkspace()
   const denyRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const restoreRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    if (pendingApproval) denyRef.current?.focus()
+    if (!pendingApproval) return
+
+    // Remember where the person was, so answering returns them there rather
+    // than dropping focus at the top of the document.
+    restoreRef.current = document.activeElement as HTMLElement | null
+    denyRef.current?.focus()
+
+    return () => {
+      restoreRef.current?.focus?.()
+      restoreRef.current = null
+    }
   }, [pendingApproval])
 
   useEffect(() => {
     if (!pendingApproval) return
 
-    // Escape denies. The safe answer must always be the easiest one.
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') workspace.resolveApproval(false)
+      // Escape denies. The safe answer must always be the easiest one.
+      if (event.key === 'Escape') {
+        workspace.resolveApproval(false)
+        return
+      }
+
+      // A gate the keyboard can walk around is not a gate. Without this, Tab
+      // leaves the dialog and reaches the trust dial and the tool list behind
+      // it while the page is supposedly suspended waiting for an answer.
+      if (event.key !== 'Tab') return
+
+      const dialog = dialogRef.current
+      if (!dialog) return
+
+      const focusable = [
+        ...dialog.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => !element.hasAttribute('disabled'))
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) return
+
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault()
+        first.focus()
+        return
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
 
     document.addEventListener('keydown', onKeyDown)
@@ -48,6 +95,7 @@ export function ApprovalModal() {
   return (
     <div className="modalBackdrop" role="presentation">
       <div
+        ref={dialogRef}
         className="modal"
         role="alertdialog"
         aria-modal="true"

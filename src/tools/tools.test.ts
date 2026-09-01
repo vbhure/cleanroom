@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { buildDataset } from '../data/dataset'
-import { WorkspaceStore, createId, isTrustLevel, trustAllows } from '../state/workspace'
+import {
+  MAX_EGRESS_ENTRIES,
+  WorkspaceStore,
+  createId,
+  isTrustLevel,
+  trustAllows,
+} from '../state/workspace'
 import { ALL_TOOLS, findTool } from './index'
 import { runTool } from './runner'
 import type { ToolSpec } from './types'
@@ -25,6 +31,17 @@ function loadSales() {
   const dataset = buildDataset({ name: 'sales.csv', text: SALES })
   workspace.addDataset(dataset)
   return dataset
+}
+
+/**
+ * Turns the k-anonymity threshold off, for tests about mechanics rather than
+ * privacy. This fixture has six rows in groups of one to three, so at the
+ * shipped default of five every result is suppressed — correctly, but that
+ * tells us nothing about whether the aggregation itself works. What the
+ * default does is asserted in "the minimum group size" below.
+ */
+function openThreshold() {
+  workspace.setMinGroupSize(1)
 }
 
 function tool(name: string): ToolSpec {
@@ -163,6 +180,7 @@ describe('describe_columns', () => {
 describe('query_dataset', () => {
   it('aggregates and groups', async () => {
     loadSales()
+    openThreshold()
     const outcome = await call('query_dataset', {
       dataset: 'sales',
       groupBy: ['region'],
@@ -306,6 +324,30 @@ describe('sample_rows — the human gate', () => {
 
     expect('error' in outcome && outcome.error.code).toBe('raw_access_disabled')
     expect(workspace.getState().pendingApproval).toBeNull()
+  })
+
+  it('will not release rows from a file the person removed while it waited', async () => {
+    const dataset = loadSales()
+    workspace.setTrustLevel('raw')
+
+    const pending = call('sample_rows', {
+      dataset: 'sales',
+      rows: 2,
+      reason: 'Checking two records before the person changes their mind.',
+    })
+
+    await waitFor(
+      () => workspace.getState().pendingApproval !== null,
+      'the approval prompt',
+    )
+
+    // The person takes the file off the page, then answers yes out of habit.
+    workspace.removeDataset(dataset.id)
+    workspace.resolveApproval(true)
+
+    const error = errorOf(await pending)
+    expect(error.code).toBe('unknown_dataset')
+    expect(workspace.totalRowsReleased()).toBe(0)
   })
 
   it('withholds the rows if the dial is turned down while the prompt is open', async () => {
@@ -455,6 +497,124 @@ describe('sample_rows — the human gate', () => {
 
     expect(error.code).toBe('unknown_column')
     expect(workspace.getState().pendingApproval).toBeNull()
+  })
+})
+
+describe('the minimum group size, at the tool boundary', () => {
+  // The engine's suppression is unit-tested next door. What matters here is
+  // that the *tools* carry the person's threshold into every path an agent can
+  // reach, and that none of them quietly substitute a weaker one.
+
+  it('ships on: a fresh workspace suppresses rather than releases', async () => {
+    loadSales()
+
+    expect(workspace.getState().minGroupSize).toBe(5)
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'sum', column: 'amount' }],
+    })
+
+    // Every rep has fewer than five rows, so nobody is named.
+    expect(payload(outcome).rows).toEqual([])
+    expect(JSON.stringify(outcome.payload)).not.toContain('Ada')
+  })
+
+  it('carries the threshold into describe_columns, not just into queries', async () => {
+    loadSales()
+
+    // `region` clears the sparse-identifier guard (3 distinct over 6 rows), so
+    // what withholds it here can only be the threshold itself.
+    const outcome = await call('describe_columns', {
+      dataset: 'sales',
+      columns: ['region'],
+    })
+
+    const profiles = payload(outcome).profiles as Array<Record<string, unknown>>
+    expect(profiles[0]?.topCategories).toBeUndefined()
+    expect(String(profiles[0]?.categoriesWithheld)).toContain(
+      'no value occurs at least 5 times',
+    )
+    expect(JSON.stringify(outcome.payload)).not.toContain('North')
+  })
+
+  it('withholds a matched-row count small enough to identify someone', async () => {
+    loadSales()
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+      aggregate: [{ op: 'max', column: 'amount' }],
+    })
+
+    // "exactly one record matches" identifies that record as surely as
+    // returning it would, so the count is withheld with the rows.
+    expect(payload(outcome).matchedRows).toBe('fewer than 5')
+    expect(JSON.stringify(outcome.payload)).not.toContain('900')
+  })
+
+  it('closes the same oracle in set_report_filter, which used to hardcode 1', async () => {
+    loadSales()
+
+    const outcome = await call('set_report_filter', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+    })
+
+    expect(payload(outcome).matchedRows).toBe('fewer than 5')
+    // The filter is still applied: this is the person's report, and they can
+    // see whatever they like in it. Only the agent's copy is withheld.
+    expect(workspace.getFilter('sales')).toHaveLength(1)
+  })
+
+  it('cannot be lowered by a tool argument on any tool that takes a filter', async () => {
+    loadSales()
+
+    for (const [name, input] of [
+      ['query_dataset', { dataset: 'sales', aggregate: [{ op: 'count' }], minGroupSize: 1 }],
+      ['describe_columns', { dataset: 'sales', minGroupSize: 1 }],
+      ['set_report_filter', { dataset: 'sales', where: [], minGroupSize: 1 }],
+    ] as const) {
+      const error = errorOf(await call(name, input))
+      expect(error.code, name).toBe('invalid_input')
+      expect(workspace.getState().minGroupSize).toBe(5)
+    }
+  })
+})
+
+describe('bounded arguments', () => {
+  it('refuses an array long enough to lock up the tab', async () => {
+    loadSales()
+
+    const error = errorOf(
+      await call('query_dataset', {
+        dataset: 'sales',
+        aggregate: [{ op: 'count' }],
+        groupBy: Array.from({ length: 500 }, () => 'region'),
+      }),
+    )
+
+    expect(error.code).toBe('invalid_input')
+    expect(error.message).toContain('at most 50')
+  })
+
+  it('bounds every array an agent can pass, on every tool', () => {
+    const unbounded: string[] = []
+
+    for (const spec of ALL_TOOLS) {
+      const properties = (spec.inputSchema.properties ?? {}) as Record<
+        string,
+        Record<string, unknown>
+      >
+      for (const [property, schema] of Object.entries(properties)) {
+        if (schema.type === 'array' && typeof schema.maxItems !== 'number') {
+          unbounded.push(`${spec.name}.${property}`)
+        }
+      }
+    }
+
+    expect(unbounded).toEqual([])
   })
 })
 
@@ -608,6 +768,7 @@ describe('add_note, update_report_block and remove_report_block', () => {
 describe('set_report_filter', () => {
   it('applies a filter and reports how much it matched', async () => {
     loadSales()
+    openThreshold()
     const outcome = await call('set_report_filter', {
       dataset: 'sales',
       where: [{ column: 'region', op: 'eq', value: 'North' }],
@@ -685,6 +846,112 @@ describe('clear_workspace — the destructive gate', () => {
     await callWithApproval('clear_workspace', { confirm: true }, true)
 
     expect(workspace.getState().egress.length).toBeGreaterThanOrEqual(before)
+  })
+})
+
+describe('the ledger under pressure', () => {
+  it('keeps the newest entries and says how many it is holding', async () => {
+    loadSales()
+    openThreshold()
+
+    for (let call = 0; call < MAX_EGRESS_ENTRIES + 25; call += 1) {
+      await runTool(tool('list_datasets'), workspace, {})
+    }
+
+    const { egress } = workspace.getState()
+    expect(egress).toHaveLength(MAX_EGRESS_ENTRIES)
+    // Newest first, so the cap drops the oldest rather than the newest.
+    expect(egress[0]?.at).toBeGreaterThanOrEqual(
+      egress[egress.length - 1]?.at as number,
+    )
+  })
+
+  it('is honest that the released totals count only what it still holds', async () => {
+    // The cap bounds memory, and the totals are computed from the entries that
+    // remain — so a very long session under-reports rather than over-reports.
+    // That is the safe direction, and it is asserted here so a change of
+    // direction is a failing test rather than a silent one.
+    loadSales()
+    openThreshold()
+
+    for (let call = 0; call < MAX_EGRESS_ENTRIES + 5; call += 1) {
+      await runTool(tool('list_datasets'), workspace, {})
+    }
+
+    const entries = workspace.getState().egress
+    const summed = entries.reduce((total, entry) => total + entry.characters, 0)
+    expect(workspace.totalCharactersReleased()).toBe(summed)
+    expect(entries).toHaveLength(MAX_EGRESS_ENTRIES)
+  })
+})
+
+describe('the approval gate under pressure', () => {
+  it('times out to deny, so an unanswered prompt never releases anything', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+
+    const decision = workspace.requestApproval(
+      { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+      { timeoutMs: 10 },
+    )
+
+    await expect(decision).resolves.toBe(false)
+    expect(workspace.getState().pendingApproval).toBeNull()
+  })
+
+  it('denies rather than queues a second request, so a prompt cannot be buried', async () => {
+    const first = workspace.requestApproval({
+      tool: 'sample_rows',
+      risk: 'gated',
+      question: 'First?',
+    })
+    const second = workspace.requestApproval({
+      tool: 'clear_workspace',
+      risk: 'gated',
+      question: 'Second?',
+    })
+
+    await expect(second).resolves.toBe(false)
+    // The person is still looking at the first question, not the second.
+    expect(workspace.getState().pendingApproval?.question).toBe('First?')
+
+    workspace.resolveApproval(false)
+    await expect(first).resolves.toBe(false)
+  })
+
+  it('denies when the agent aborts the call it was waiting on', async () => {
+    const controller = new AbortController()
+    const decision = workspace.requestApproval(
+      { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+      { signal: controller.signal },
+    )
+
+    await waitFor(
+      () => workspace.getState().pendingApproval !== null,
+      'the approval prompt',
+    )
+    controller.abort()
+
+    await expect(decision).resolves.toBe(false)
+    expect(workspace.getState().pendingApproval).toBeNull()
+  })
+
+  it('refuses immediately if the call was already aborted before it asked', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      workspace.requestApproval(
+        { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+        { signal: controller.signal },
+      ),
+    ).resolves.toBe(false)
+    expect(workspace.getState().pendingApproval).toBeNull()
+  })
+
+  it('ignores an answer to a question nobody asked', () => {
+    expect(() => workspace.resolveApproval(true)).not.toThrow()
+    expect(workspace.getState().pendingApproval).toBeNull()
   })
 })
 
@@ -926,6 +1193,8 @@ describe('output budget', () => {
       wide.push(`a_deliberately_long_group_key_value_number_${i},${i}`)
     }
     workspace.addDataset(buildDataset({ name: 'wide.csv', text: wide.join('\n') }))
+
+    openThreshold()
 
     const outcome = await call('query_dataset', {
       dataset: 'wide',

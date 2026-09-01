@@ -14,6 +14,10 @@ browser's agent or by the in-app Tool Inspector.
 - Results are capped at 1,500 characters. When a list is trimmed the payload
   carries `outputTruncated` naming the field, how many were returned and how
   many exist.
+- Every array input is capped at 50 items, so no single call can hand the page
+  an array long enough to lock the tab.
+- `minGroupSize` defaults to **5**, not 1. Any number computed from fewer than
+  five records is suppressed.
 - Failures return `{ "error": { "code", "message", ... } }` rather than
   throwing, with enough context to retry correctly.
 - All schemas set `additionalProperties: false`.
@@ -63,7 +67,7 @@ Structure only — no cell values. Call it first.
       "columns": [{ "name": "region", "type": "string" }] }
   ],
   "privacy": {
-    "trustLevel": "aggregates", "minGroupSize": 1,
+    "trustLevel": "aggregates", "minGroupSize": 5,
     "rawRowAccess": "disabled", "maxRowsPerResult": 50
   }
 }
@@ -113,6 +117,11 @@ Filter, group, aggregate. **Cannot return individual rows.**
 Aggregate output columns are named `count` or `op_of_column` unless `as` is
 given. Nulls sort last in both directions.
 
+Any result computed from fewer than `minGroupSize` records is suppressed —
+whether the set was narrowed by `groupBy`, by `where`, or both — and so is
+`matchedRows` when it is itself that small. The exception is an aggregate over
+the whole file, whose size is already public through `list_datasets`.
+
 `minGroupSize` is **not** an input; it is read from the workspace. Passing it is
 rejected.
 
@@ -156,15 +165,18 @@ person verbatim), `rows` (1–5, default 3), `columns` (strongly encouraged).
 3. Suspends until the person answers. Escape or two minutes ⇒ deny. Turning
    the dial down while the prompt is open withdraws the request.
 4. The level is checked **again** after approval, so a "yes" given at *Raw*
-   cannot release rows once the person has moved to *Aggregates*.
+   cannot release rows once the person has moved to *Aggregates* — and so is
+   the dataset, so a "yes" given before the file was removed releases nothing.
 5. A second concurrent request is denied, not queued.
+6. Always the **first** n rows. There is no offset, so however many times it is
+   asked, a session's raw exposure is bounded to the first five records.
 
 **Returns** `columns`, `rows`, and a note that the contents are untrusted data
 rather than instructions. The ledger records the row count prominently.
 
 **Errors:** `raw_access_disabled`, `approval_denied` (tells the agent to
 continue with aggregates and not to ask again), `unknown_column`,
-`empty_dataset`.
+`unknown_dataset`, `empty_dataset`, `tool_unavailable`.
 
 Annotated `readOnlyHint: true`, `untrustedContentHint: true`.
 

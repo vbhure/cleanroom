@@ -190,6 +190,53 @@ describe('profileColumn — the identifying-column guard', () => {
   })
 })
 
+describe('profileColumn — the sparse-identifier guard', () => {
+  it('withholds values that are nearly unique among the rows that have one', () => {
+    // Twelve rows, ten of them empty; the two that are filled are unique.
+    // Dividing distinct values by *total* rows called this a category
+    // (2/12 = 0.17). Dividing by the rows that actually hold a value calls it
+    // what it is.
+    const sparse = buildDataset({
+      name: 'cases.csv',
+      text: [
+        'case_reference,status',
+        'REF-88213-ALPHA,open',
+        'REF-90117-BRAVO,open',
+        ...Array.from({ length: 10 }, () => ',open'),
+      ].join('\n'),
+    })
+
+    const column = findColumn(sparse, 'case_reference')
+    if (!column) throw new Error('missing column')
+    const profile = profileColumn(column, sparse.rowCount, { minGroupSize: 1 })
+
+    expect(profile.topCategories).toBeUndefined()
+    expect(profile.categoriesWithheld).toMatch(/nearly unique/)
+    expect(JSON.stringify(profile)).not.toContain('REF-88213-ALPHA')
+  })
+
+  it('still names a genuine category that happens to sit in a sparse column', () => {
+    const sparse = buildDataset({
+      name: 'outcomes.csv',
+      text: [
+        'outcome,note',
+        ...Array.from({ length: 4 }, () => 'settled,x'),
+        ...Array.from({ length: 4 }, () => 'dismissed,x'),
+        ...Array.from({ length: 20 }, () => ',x'),
+      ].join('\n'),
+    })
+
+    const column = findColumn(sparse, 'outcome')
+    if (!column) throw new Error('missing column')
+    const profile = profileColumn(column, sparse.rowCount, { minGroupSize: 1 })
+
+    expect(profile.topCategories).toEqual([
+      { value: 'settled', count: 4 },
+      { value: 'dismissed', count: 4 },
+    ])
+  })
+})
+
 describe('profileDataset', () => {
   it('profiles every column by default', () => {
     const outcome = profileDataset(people())

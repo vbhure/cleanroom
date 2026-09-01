@@ -264,6 +264,9 @@ describe('the trust dial changes what the agent is offered', () => {
 describe('tool execution through the WebMCP interface', () => {
   it('returns a JSON string an agent can parse', async () => {
     loadSales()
+    // Six rows in groups of one to three: the shipped threshold would suppress
+    // every one of them, correctly. This test is about the JSON round trip.
+    workspace.setMinGroupSize(1)
     await settle()
 
     const result = await execute('query_dataset', {
@@ -351,6 +354,64 @@ describe('registrar lifecycle', () => {
     await registrar.start()
     const names = await toolNames()
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('survives a teardown-then-setup, the way StrictMode mounts an effect', async () => {
+    // React mounts every effect twice in development. Two registrars therefore
+    // overlap on one shared registry whose names are unique, and the second
+    // one's registerTool was rejected for a name the first had not finished
+    // releasing: `npm run dev` came up with an error banner and add_note
+    // missing. Start and stop are serialised across instances now.
+    const failures: string[] = []
+    // A context of its own, so the suite's own registrar is not a third party
+    // to the race being tested.
+    const context = createLocalModelContext()
+    const first = new ToolRegistrar({
+      modelContext: context,
+      workspace,
+      onError: (name) => failures.push(name),
+    })
+    const second = new ToolRegistrar({
+      modelContext: context,
+      workspace,
+      onError: (name) => failures.push(name),
+    })
+
+    // Deliberately not awaited in order: this is the interleaving StrictMode
+    // produces, with the replacement starting before the original has gone.
+    const cycle = Promise.all([first.start(), first.stop(), second.start()])
+    await cycle
+    await settle()
+
+    expect(failures).toEqual([])
+    const names = (await context.getTools()).map((tool) => tool.name).sort()
+    expect(names).toEqual(['add_note', 'list_datasets'])
+
+    await second.stop()
+  })
+
+  it('does not let a replaced registration tear down the one that replaced it', async () => {
+    // The abort listener used to delete by name, so a late abort from a
+    // registration that had already been replaced unregistered the live tool
+    // standing in its place.
+    const context = createLocalModelContext()
+    const first = new AbortController()
+
+    await context.registerTool(
+      { name: 'ghost', description: 'first', execute: () => 'first' },
+      { signal: first.signal },
+    )
+    first.abort()
+
+    await context.registerTool(
+      { name: 'ghost', description: 'second', execute: () => 'second' },
+      { signal: new AbortController().signal },
+    )
+    first.abort()
+
+    const tools = await context.getTools()
+    expect(tools.map((tool) => tool.name)).toEqual(['ghost'])
+    expect(tools[0]?.description).toBe('second')
   })
 
   it('reports registration failures instead of failing silently', async () => {

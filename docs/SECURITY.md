@@ -29,9 +29,13 @@ with page access, or a user who chooses to release their own data.
 ## Control 1 — the page cannot make a network request
 
 `connect-src 'none'` in the Content-Security-Policy removes `fetch`, `XHR`,
-`WebSocket`, `EventSource` and `sendBeacon` from the page. Delivered as an HTTP
-header (`netlify.toml`) and embedded in the built markup (`vite.config.ts`), so
-it survives a change of host.
+`WebSocket`, `EventSource` and `sendBeacon` from the page. Two further
+directives close channels `connect-src` does not govern: `worker-src 'none'`,
+because a worker gets its own policy and a `<meta>` CSP never reaches it, and
+`frame-src 'none'`, because a nested document is a second network stack.
+Delivered as an HTTP header (`netlify.toml`) and embedded in the built markup
+(`vite.config.ts`), so it survives a change of host — and the two copies are
+kept in step by a test (`src/security/csp.test.ts`) rather than by memory.
 
 This is the strongest control here because it does not depend on our code being
 correct. Even if we shipped an exfiltration bug tomorrow, the browser would
@@ -95,10 +99,6 @@ before executing (`tool_unavailable`), and withdrawing a tool aborts its calls
 in flight, so a raw-row prompt waiting on the person closes without releasing
 anything.
 
-Within the aggregate tools, grouped results suppress any group smaller than
-`minGroupSize`. Group by `email` with the threshold at 5 and you get a
-suppressed count, not a list of people.
-
 Both controls live in the workspace and are read on every call. **An agent
 cannot set either.** Passing `minGroupSize` or `trustLevel` as a tool argument
 is rejected as an unexpected property, because every schema sets
@@ -111,7 +111,52 @@ does the same through `document.modelContext` from page context.
 
 ---
 
-## Control 5 — the human gate is in the app, not the prompt
+## Control 5 — no answer is computed from fewer than k records
+
+`minGroupSize` is the k-anonymity threshold, and it **ships at 5 rather than
+off**. A privacy control that starts disabled protects the sessions nobody has;
+this one is in force in the state every first-time visitor and every judge
+meets, and the sample dataset is built for it — four regions of exactly five
+rows, so grouping by region is answered and grouping by individual sales rep is
+not.
+
+The rule is a query-set-size restriction, and it does not care how the set got
+small:
+
+- **Grouping.** Group by `email` and every group below the threshold collapses
+  into a suppressed count rather than a list of people.
+- **Filtering.** This is the one that matters, and it was the gap. The
+  threshold used to apply only when grouping, on the reasoning that "an
+  ungrouped total reveals nothing about any individual". That is true of the
+  whole file and false the moment a `where` narrows it: filter to one person
+  and `max(salary)` over the remainder *is* that person's salary. Any result
+  computed from fewer than k matching rows is now suppressed too.
+- **The count itself.** `matchedRows` is withheld on the same rule. "Exactly
+  one record matches this email address" identifies that record as surely as
+  returning it would, and so does "no record matches" — the two are the same
+  membership disclosure with opposite signs, and above the threshold they are
+  indistinguishable to the agent. `set_report_filter` obeys this too; it used
+  to probe with the threshold hardcoded to 1.
+
+The single exception is an aggregate over the whole file, which describes the
+dataset the person loaded rather than anyone in it, and whose size is already
+public through `list_datasets`.
+
+**Verified by:** `src/data/query.test.ts` asserts each path, including that a
+filter combined with a grouping cannot walk around it; `src/tools/tools.test.ts`
+asserts the threshold is carried into `describe_columns` and `set_report_filter`
+and cannot be lowered by an argument on any tool; an end-to-end test drives the
+same thing through the UI at the shipped default.
+
+A second guard sits beside it in the profiler. Top categories are named only
+when a column groups rows rather than identifying them, and the uniqueness test
+divides distinct values by **the rows that actually hold one**, not by every
+row. Dividing by every row called a column that is empty in 980 of 1,000 rows
+and unique in the other 20 a category.
+
+---
+
+## Control 6 — the human gate is in the app, not the prompt
 
 Two tools suspend execution inside their `execute` until a person answers a
 dialog. This is enforced by the application, so no amount of persuasive text
@@ -122,6 +167,11 @@ inside a dataset can talk past it — the model is not the thing being asked.
 - is not registered below the *Raw* trust level, and refuses with
   `raw_access_disabled` — before prompting and again after approval — if the
   level is found to be lower when it runs;
+- re-checks after approval that the dataset is still loaded, so a "yes" given
+  before the person removed the file does not release rows from it;
+- always returns the **first** n rows, never an offset, which bounds the raw
+  exposure of a session to the first five records however many times it is
+  asked;
 - requires a written `reason`, shown to the human verbatim and attributed to the
   agent, so a reason that is itself an injection attempt reads as exactly that;
 - caps the request at 5 rows;
@@ -137,7 +187,7 @@ by a malformed call.
 
 ---
 
-## Control 6 — untrusted content is treated as data
+## Control 7 — untrusted content is treated as data
 
 Notes are rendered by a parser that builds React elements and never touches
 `innerHTML` or `dangerouslySetInnerHTML` (`src/ui/Markdown.tsx`). There is no
@@ -156,7 +206,7 @@ that asserts an `onerror` payload creates no element and executes nothing.
 
 ---
 
-## Control 7 — hostile arguments
+## Control 8 — hostile arguments
 
 - Prototype-polluting keys (`__proto__`, `constructor`, `prototype`) are
   rejected before the schema is consulted, at any nesting depth.
@@ -172,7 +222,7 @@ that asserts an `onerror` payload creates no element and executes nothing.
 
 ---
 
-## Control 8 — output budget and the ledger
+## Control 9 — output budget and the ledger
 
 Every result is capped at 1,500 characters, Chrome's published ceiling. Trimming
 is honest: the payload says how many items were dropped so the agent knows it is
@@ -198,6 +248,26 @@ Stated plainly.
 - **A user can turn the dial to *Raw* and lower the group threshold.** They
   own their data. The controls exist so that doing so is a deliberate act the
   person can see, not a default the agent can rely on.
+- **Sealed is not silent.** At the lowest trust level the agent can still call
+  `list_datasets`, which returns the file name, the column names, the column
+  types and the row count. Column names can themselves be sensitive
+  (`hiv_status`, `redundancy_date`). What Sealed guarantees is that nothing is
+  *computed from the data*; it is not a claim that the page tells the agent
+  nothing.
+- **Numeric bounds are real values.** `min`, `max`, `median` on a numeric
+  column, and the outlier bounds in `detect_anomalies`, are by construction
+  equal to somebody's actual number. That is what a statistic on a numeric
+  column is, and it is why the threshold and the ledger exist rather than a
+  claim that no value ever escapes. Ordering statistics are refused outright on
+  text columns, where the minimum of a `name` column is a person.
+- **WebRTC is the one egress channel the policy does not close.** A peer
+  connection is not a fetch, so `connect-src` does not govern it; the
+  `webrtc 'block'` directive would, but Chromium does not yet recognise it and
+  logs a console error for every unrecognised directive. Shipping a policy the
+  browser ignores would buy nothing and cost the clean console this project
+  asserts in its own smoke test, so the gap is written down here instead. No
+  code in Cleanroom opens a peer connection, and there are no runtime
+  dependencies beyond React that could.
 - **Nothing here constrains what the agent does with data after it receives
   it.** No page can.
 

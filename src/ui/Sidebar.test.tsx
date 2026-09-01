@@ -83,7 +83,8 @@ describe('the trust dial', () => {
     render(<Sidebar />)
 
     const input = screen.getByLabelText('Minimum group size') as HTMLInputElement
-    expect(input.value).toBe('1')
+    // k-anonymity ships on, not off.
+    expect(input.value).toBe('5')
 
     fireEvent.change(input, { target: { value: '4' } })
     expect(workspace.getState().minGroupSize).toBe(4)

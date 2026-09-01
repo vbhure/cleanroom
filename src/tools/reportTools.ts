@@ -16,7 +16,7 @@ import type { Aggregation, Filter, OrderBy } from '../data/query'
 import { columnNames, findColumn } from '../data/types'
 import type { ChartSpec, ChartType, WorkspaceState } from '../state/workspace'
 import { createId, trustAllows } from '../state/workspace'
-import { resolveDataset } from './dataTools'
+import { MAX_LIST_ITEMS, resolveDataset } from './dataTools'
 import type { JsonSchema, ToolSpec } from './types'
 import { fail } from './types'
 
@@ -352,6 +352,7 @@ export const setReportFilter: ToolSpec = {
       where: {
         type: 'array',
         items: FILTER_SCHEMA,
+        maxItems: MAX_LIST_ITEMS,
         description: 'Filters combined with AND. Empty array clears the filter.',
       },
     },
@@ -374,11 +375,14 @@ export const setReportFilter: ToolSpec = {
     }
 
     // Validate by running the filter, so a bad filter is rejected rather than
-    // silently emptying every chart in the report.
+    // silently emptying every chart in the report. The threshold is the
+    // person's, not 1: otherwise "how many rows match?" would be an exact
+    // count oracle that query_dataset refuses to be.
+    const minGroupSize = workspace.getState().minGroupSize
     const probe = runQuery(resolved.dataset, {
       where: filters,
       aggregate: [{ op: 'count' }],
-      minGroupSize: 1,
+      minGroupSize,
     })
 
     if (!probe.ok) {
@@ -390,7 +394,9 @@ export const setReportFilter: ToolSpec = {
     return {
       payload: {
         dataset: resolved.dataset.id,
-        matchedRows: probe.result.matchedRows,
+        ...(probe.result.matchedRowsIdentifying
+          ? { matchedRows: `fewer than ${minGroupSize}` }
+          : { matchedRows: probe.result.matchedRows }),
         totalRows: resolved.dataset.rowCount,
       },
       summary: `Filtered the report on "${resolved.dataset.id}" to ${probe.result.matchedRows} of ${resolved.dataset.rowCount} rows.`,

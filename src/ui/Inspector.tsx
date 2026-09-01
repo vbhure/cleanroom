@@ -10,8 +10,8 @@
  * the whole surface is still inspectable and callable, schemas and all.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { findTool } from '../tools'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ALL_TOOLS, findTool } from '../tools'
 import type { RiskClass } from '../tools'
 import type { RegisteredTool } from '../webmcp/types'
 
@@ -59,16 +59,27 @@ export function Inspector({ open, onToggle }: InspectorProps) {
   const [result, setResult] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
 
+  // `getTools()` is async, and moving the trust dial can fire `toolchange`
+  // twice before the first read resolves. Without a sequence number the older
+  // answer can land last and leave the count disagreeing with the registry —
+  // and that count is the visible consequence of the whole trust dial.
+  const latest = useRef(0)
+
   const refresh = useCallback(async () => {
     const context = document.modelContext
     if (!context) return
-    setTools(await context.getTools())
+
+    latest.current += 1
+    const ticket = latest.current
+    const registered = await context.getTools()
+    if (ticket !== latest.current) return
+    setTools(registered)
   }, [])
 
   // The registered tool set lives outside React, in the browser's own registry,
   // and announces its changes with `toolchange`. Subscribing to that — plus one
   // read to pick up whatever was already registered before we mounted — is the
-  // whole synchronisation.
+  // whole synchronisation, which is exactly what an effect is for.
   useEffect(() => {
     const context = document.modelContext
     if (!context) return
@@ -134,7 +145,14 @@ export function Inspector({ open, onToggle }: InspectorProps) {
         data-testid="inspector-toggle"
       >
         <span>Tool Inspector</span>
-        <span className="inspectorCount">{tools.length} registered</span>
+        {/*
+          Out of how many. "2 registered" on an eleven-tool app reads as "this
+          app has two tools"; "2 of 11 registered" reads as the boundary doing
+          its job, which is what it is.
+        */}
+        <span className="inspectorCount" data-testid="inspector-count">
+          {tools.length} of {ALL_TOOLS.length} registered
+        </span>
         <span className="inspectorChevron">{open ? '▾' : '▸'}</span>
       </button>
 

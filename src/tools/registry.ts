@@ -33,6 +33,26 @@ interface Registration {
 }
 
 export class ToolRegistrar {
+  /**
+   * Registrations are a side effect on one shared object — the browser's
+   * registry — and names on it are unique, so two registrars overlapping means
+   * the second one's `registerTool` is rejected for a name the first has not
+   * finished releasing. That is not hypothetical: React's StrictMode mounts
+   * every effect twice in development, and without this queue `npm run dev`
+   * came up with a registration error and a tool missing.
+   *
+   * Serialising start and stop across instances costs nothing — both are
+   * already async, and only one registrar is live at a time — and it makes
+   * teardown-then-setup mean what it says.
+   */
+  private static sequence: Promise<void> = Promise.resolve()
+
+  private static enqueue(work: () => Promise<void>): Promise<void> {
+    const next = ToolRegistrar.sequence.then(work, work)
+    ToolRegistrar.sequence = next.catch(() => {})
+    return next
+  }
+
   private readonly registrations = new Map<string, Registration>()
   private unsubscribe: (() => void) | null = null
   private syncing = false
@@ -56,18 +76,20 @@ export class ToolRegistrar {
       void this.sync()
     })
 
-    await this.sync()
+    await ToolRegistrar.enqueue(() => this.sync())
   }
 
   async stop(): Promise<void> {
     this.unsubscribe?.()
     this.unsubscribe = null
 
-    for (const [name, registration] of this.registrations) {
-      registration.controller.abort()
-      await registration.settled.catch(() => {})
-      this.registrations.delete(name)
-    }
+    await ToolRegistrar.enqueue(async () => {
+      for (const [name, registration] of this.registrations) {
+        registration.controller.abort()
+        await registration.settled.catch(() => {})
+        this.registrations.delete(name)
+      }
+    })
   }
 
   /** Tool names currently registered. Exposed for tests and the Inspector. */

@@ -106,7 +106,7 @@ export function profileColumn(
     profile.stdDev = round(standardDeviation(numbers, mean), 4)
   }
 
-  const categories = topCategories(column, counts, rowCount, minGroupSize)
+  const categories = topCategories(column, counts, minGroupSize)
   if ('withheld' in categories) profile.categoriesWithheld = categories.withheld
   else profile.topCategories = categories.categories
 
@@ -120,7 +120,6 @@ type CategoryOutcome =
 function topCategories(
   column: Column,
   counts: Map<CellValue, number>,
-  rowCount: number,
   minGroupSize: number,
 ): CategoryOutcome {
   // Numbers and dates are measurements, not categories; their distribution is
@@ -139,10 +138,15 @@ function topCategories(
     }
   }
 
-  if (rowCount > 0 && counts.size / rowCount > CATEGORICAL_DISTINCT_RATIO) {
+  // Against the rows that actually hold a value, not against every row. A
+  // column that is empty in 980 of 1,000 rows and unique in the other 20 is
+  // an identifier, and dividing by 1,000 would call it a category.
+  const populated = [...counts.values()].reduce((total, count) => total + count, 0)
+
+  if (populated > 0 && counts.size / populated > CATEGORICAL_DISTINCT_RATIO) {
     return {
       withheld:
-        'Withheld: values are nearly unique per row, so naming them would reveal individual records.',
+        'Withheld: values are nearly unique among the rows that have one, so naming them would reveal individual records.',
     }
   }
 

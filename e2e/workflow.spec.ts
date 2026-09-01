@@ -71,7 +71,7 @@ test.describe('loading data', () => {
 
   test('shows the report as empty until something is added', async ({ page }) => {
     await loadSample(page)
-    await expect(page.getByText('The report is empty')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Nothing on the canvas yet' })).toBeVisible()
   })
 
   test('a person can remove their dataset again', async ({ page }) => {
@@ -237,6 +237,88 @@ test.describe('agent analysis workflow', () => {
   })
 })
 
+test.describe('the first screen', () => {
+  test('states the thesis and offers one click that makes the page live', async ({
+    page,
+  }) => {
+    await page.goto('/')
+
+    await expect(
+      page.getByRole('heading', {
+        name: 'The agent gets tools. It never gets the file.',
+      }),
+    ).toBeVisible()
+    // The verifiable claim, on the page rather than only in the README.
+    await expect(page.getByText("connect-src 'none'").first()).toBeVisible()
+
+    await page.getByTestId('load-sample').click()
+
+    await expect(page.getByText('sample_sales.csv')).toBeVisible()
+    await expect(page.getByTestId('kept-local')).toHaveText(/^\d{3} B$/)
+  })
+
+  test('shows how much of the tool surface the agent currently has', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    // Two of eleven, not "two", which reads as an app with two tools.
+    await expect(page.getByTestId('inspector-count')).toHaveText('2 of 11 registered')
+    await expect(page.getByTestId('trust-count')).toContainText('2 of 11 tools')
+
+    await loadSample(page)
+    await expect(page.getByTestId('trust-count')).toContainText('8 of 11 tools')
+
+    await setTrust(page, 'sealed')
+    await expect(page.getByTestId('trust-count')).toContainText('3 of 11 tools')
+    await expect(page.getByTestId('inspector-count')).toHaveText('3 of 11 registered')
+
+    await setTrust(page, 'raw')
+    await expect(page.getByTestId('trust-count')).toContainText('9 of 11 tools')
+  })
+})
+
+test.describe('the minimum group size, as the person sees it', () => {
+  test('ships on, and suppresses a query that would name an individual', async ({
+    page,
+  }) => {
+    await loadSample(page)
+    await openInspector(page)
+
+    await expect(page.getByLabel('Minimum group size')).toHaveValue('5')
+
+    // Each rep closed fewer than five deals, so naming them is refused.
+    const suppressed = await callTool(page, 'query_dataset', {
+      dataset: 'sample_sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'sum', column: 'deal_size' }],
+    })
+    expect(suppressed.rows).toEqual([])
+    expect(JSON.stringify(suppressed)).not.toContain('Ada Lovelace')
+
+    // Each region has exactly five, so the same query by region is answered.
+    const allowed = await callTool(page, 'query_dataset', {
+      dataset: 'sample_sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'sum', column: 'deal_size' }],
+    })
+    expect((allowed.rows as unknown[]).length).toBe(4)
+  })
+
+  test('withholds a count small enough to identify somebody', async ({ page }) => {
+    await loadSample(page)
+    await openInspector(page)
+
+    const result = await callTool(page, 'query_dataset', {
+      dataset: 'sample_sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Ada Lovelace' }],
+      aggregate: [{ op: 'max', column: 'deal_size' }],
+    })
+
+    expect(result.matchedRows).toBe('fewer than 5')
+    expect(JSON.stringify(result)).not.toContain('33000')
+  })
+})
+
 test.describe('the shared report', () => {
   test('an agent chart appears in the human report, badged as the agent’s', async ({
     page,
@@ -284,7 +366,7 @@ test.describe('the shared report', () => {
     await expect(page.getByRole('heading', { name: 'Temporary' })).toBeVisible()
     await page.getByRole('button', { name: 'Remove Temporary' }).click()
 
-    await expect(page.getByText('The report is empty')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Nothing on the canvas yet' })).toBeVisible()
   })
 
   test('a report filter narrows every chart at once', async ({ page }) => {
@@ -359,6 +441,41 @@ test.describe('the human approval gate', () => {
     // The refusal is on the record like any other call.
     await expect(page.getByTestId('ledger-list').first()).toContainText('sample_rows')
     await expect(page.getByTestId('ledger-list').first()).toContainText('refused')
+  })
+
+  test('holds the keyboard inside the gate while it is open', async ({ page }) => {
+    await loadSample(page)
+    await setTrust(page, 'raw')
+    await openInspector(page)
+
+    await selectTool(page, 'sample_rows')
+    await page.getByTestId('tool-args').fill(
+      JSON.stringify({
+        dataset: 'sample_sales',
+        rows: 2,
+        reason: 'Checking whether the keyboard can walk around this dialog.',
+      }),
+    )
+    await page.getByTestId('tool-run').click()
+    await expect(page.getByTestId('approval-modal')).toBeVisible()
+
+    // The safe answer holds focus the moment the question appears.
+    await expect(page.getByTestId('approval-deny')).toBeFocused()
+
+    // Tabbing must not reach the trust dial or the tool list behind the modal:
+    // a gate the keyboard can step around is not a gate.
+    for (let press = 0; press < 6; press += 1) {
+      await page.keyboard.press('Tab')
+      const inside = await page.evaluate(() => {
+        const modal = document.querySelector('[data-testid="approval-modal"]')
+        return modal ? modal.contains(document.activeElement) : false
+      })
+      expect(inside).toBe(true)
+    }
+
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('approval-modal')).toBeHidden()
+    await expect(page.getByTestId('rows-released')).toHaveText('0')
   })
 
   test('a denied request releases nothing', async ({ page }) => {
@@ -521,7 +638,13 @@ test.describe('clearing the workspace', () => {
     await page.getByTestId('approval-approve').click()
 
     await expect(page.getByText('No dataset loaded yet.')).toBeVisible()
-    await expect(page.getByText('The report is empty')).toBeVisible()
+    // Both the data and the report are gone, so the page is back to the state
+    // a first-time visitor meets, thesis and all.
+    await expect(
+      page.getByRole('heading', {
+        name: 'The agent gets tools. It never gets the file.',
+      }),
+    ).toBeVisible()
   })
 
   test('a denied clear changes nothing', async ({ page }) => {

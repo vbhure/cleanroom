@@ -7,10 +7,14 @@
  *    this path — that requires the separate, human-gated `sample_rows` tool.
  *    Without this rule an agent could drain a dataset one SELECT at a time.
  *
- * 2. Grouped results honour a k-anonymity threshold the human controls. Group
- *    by a high-cardinality column such as `email` and, with k > 1, the small
- *    groups collapse into a suppressed count instead of enumerating every
- *    individual.
+ * 2. Results honour a k-anonymity threshold the human controls. Any number
+ *    computed from fewer than k records is suppressed, however the narrowing
+ *    happened: group by a high-cardinality column such as `email` and the
+ *    small groups collapse into a count, and filter down to one person with a
+ *    `where` and the ungrouped aggregate collapses the same way. The single
+ *    exception is an aggregate over the whole file, which describes the
+ *    dataset the person loaded rather than anyone in it, and whose size is
+ *    already public through `list_datasets`.
  *
  * Errors are returned, never thrown, and carry enough context for an agent to
  * correct itself without a human in the loop.
@@ -91,6 +95,13 @@ export interface QueryResult {
   /** Groups folded away by the k-anonymity threshold, if any. */
   suppressedGroups: number
   suppressedRows: number
+  /**
+   * True when `matchedRows` is itself identifying — fewer records than the
+   * threshold, and not simply the whole file. The count is still reported here
+   * because the person may see it; the tool layer decides whether to release
+   * it, and does not.
+   */
+  matchedRowsIdentifying: boolean
 }
 
 export interface QueryError {
@@ -225,10 +236,18 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
   let suppressedRows = 0
   const kept: GroupEntry[] = []
 
+  // A result computed from fewer than `minGroupSize` records describes those
+  // records rather than a population, whether the narrowing came from a
+  // `groupBy` or from a `where`. The one case that is not a disclosure is an
+  // aggregate over the whole file: that describes the dataset the person
+  // loaded, and its size is already public through list_datasets. So the rule
+  // is "too few rows behind this number, and it is not the whole file".
+  const wholeDataset = matchingRows.length === dataset.rowCount
+
   for (const group of groups) {
-    // Suppression only makes sense when grouping: an ungrouped total reveals
-    // nothing about any individual.
-    if (groupBy.length > 0 && group.rows.length < minGroupSize) {
+    // A threshold of 1 is off, so it must not catch the empty result either.
+    const identifying = minGroupSize > 1 && group.rows.length < minGroupSize
+    if (identifying && (groupBy.length > 0 || !wholeDataset)) {
       suppressedGroups += 1
       suppressedRows += group.rows.length
       continue
@@ -307,6 +326,8 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
       truncated: totalGroups > limit,
       suppressedGroups,
       suppressedRows,
+      matchedRowsIdentifying:
+        minGroupSize > 1 && matchingRows.length < minGroupSize && !wholeDataset,
     },
   }
 }

@@ -10,9 +10,24 @@ import { defineConfig, type Plugin } from 'vite'
  * into the browser therefore cannot be transmitted anywhere, by us or by
  * anything we accidentally ship. Anyone can verify this in DevTools.
  *
+ * Two further directives close channels `connect-src` does not govern:
+ *   `worker-src 'none'`  a worker gets its own policy, and a <meta> CSP does
+ *                        not reach it at all
+ *   `frame-src 'none'`   a nested document is a second page with a second
+ *                        network stack
+ * We use neither, so forbidding them costs nothing.
+ *
+ * `webrtc 'block'` would close the third — a peer connection is not a fetch,
+ * and no fetch directive stops one — but Chromium does not yet recognise the
+ * directive and logs a console error for it on every load. Shipping a policy
+ * the browser ignores buys nothing and costs the clean console this project
+ * asserts in its own smoke test, so the gap is documented in docs/SECURITY.md
+ * rather than papered over.
+ *
  * `frame-ancestors` is deliberately absent here: it is meaningless in a <meta>
  * CSP and browsers log a warning when it appears there. It is delivered as an
- * HTTP header instead (see netlify.toml).
+ * HTTP header instead (see netlify.toml). The two copies are kept in step by
+ * a test — src/security/csp.test.ts — rather than by memory.
  */
 const PORTABLE_CSP = [
   "default-src 'self'",
@@ -22,6 +37,8 @@ const PORTABLE_CSP = [
   "font-src 'self'",
   "connect-src 'none'",
   "object-src 'none'",
+  "worker-src 'none'",
+  "frame-src 'none'",
   "base-uri 'self'",
   "form-action 'none'",
 ].join('; ')

@@ -10,6 +10,8 @@
 
 import { useId, useRef, useState } from 'react'
 import { buildDataset } from '../data/dataset'
+import { buildSampleDataset } from '../data/sample'
+import { ALL_TOOLS } from '../tools'
 import { TRUST_LEVELS, workspace } from '../state/workspace'
 import type { TrustLevel } from '../state/workspace'
 import { formatBytes, formatCount } from './format'
@@ -28,28 +30,6 @@ const TRUST_HINT: Record<TrustLevel, string> = {
     'The agent can profile, query and chart your data and receives only aggregates. The one tool that could reveal a record is not offered at all.',
   raw: 'The agent may ask to see up to 5 raw rows. Each request stops for your decision, with the agent’s reason shown to you verbatim.',
 }
-
-const SAMPLE_CSV = `region,rep,deal_size,closed_on,segment,status
-North,Ada Lovelace,12500,2026-01-05,Enterprise,won
-North,Ada Lovelace,8200,2026-01-19,Mid-market,won
-North,Bob Chen,3100,2026-01-20,SMB,lost
-South,Cleo Marsh,41000,2026-02-02,Enterprise,won
-South,Cleo Marsh,5400,2026-02-15,SMB,won
-South,Bob Chen,7300,2026-02-18,Mid-market,lost
-East,Dev Rao,96000,2026-01-30,Enterprise,won
-East,Dev Rao,2200,2026-03-04,SMB,won
-East,Eve Nakamura,15800,2026-03-11,Mid-market,won
-West,Eve Nakamura,,2026-03-20,Mid-market,open
-West,Priya Shah,22400,2026-03-22,Enterprise,won
-West,Priya Shah,1900,2026-04-02,SMB,lost
-North,Ada Lovelace,33000,2026-04-14,Enterprise,won
-South,Cleo Marsh,4700,2026-04-19,SMB,open
-East,Dev Rao,58000,2026-05-03,Enterprise,won
-West,Priya Shah,9100,2026-05-12,Mid-market,won
-North,Bob Chen,6400,2026-05-21,SMB,won
-South,Cleo Marsh,275000,2026-06-01,Enterprise,won
-East,Eve Nakamura,3300,2026-06-09,SMB,lost
-West,Priya Shah,11200,2026-06-18,Mid-market,won`
 
 export function Sidebar() {
   const state = useWorkspace()
@@ -120,10 +100,18 @@ function DropZone() {
         <p className="dropZoneHint">
           Parsed in this tab. Never uploaded.
         </p>
+        {/*
+          The visible "Choose a file" button is the control; this input is the
+          mechanism behind it. Left in the tab order it is a stop with no
+          visible focus ring and nothing to announce, so it is taken out of it
+          and named for anyone who reaches it another way.
+        */}
         <input
           ref={inputRef}
           id={inputId}
           type="file"
+          tabIndex={-1}
+          aria-label="Choose a CSV file to load"
           accept=".csv,.tsv,.txt,text/csv,text/plain"
           className="visually-hidden"
           onChange={(event) => {
@@ -144,13 +132,7 @@ function DropZone() {
         type="button"
         className="linkButton"
         onClick={() => {
-          workspace.addDataset(
-            buildDataset({
-              name: 'sample_sales.csv',
-              text: SAMPLE_CSV,
-              existingIds: workspace.datasetIds(),
-            }),
-          )
+          workspace.addDataset(buildSampleDataset(workspace.datasetIds()))
         }}
       >
         or load a sample dataset
@@ -259,8 +241,9 @@ function Guardrails({
           }}
         />
         <p className="guardrailHint">
-          Grouped results hide any group smaller than this, so an agent cannot
-          isolate an individual. 1 turns it off.
+          No answer is computed from fewer records than this, however the agent
+          narrows it — by grouping, by filtering, or by asking how many rows
+          matched. 1 turns it off.
         </p>
       </div>
     </div>
@@ -275,6 +258,13 @@ function Guardrails({
  */
 function TrustDial({ level }: { level: TrustLevel }) {
   const name = useId()
+  const state = useWorkspace()
+
+  // The dial's real consequence is the size of the agent's menu, and that
+  // number lives at the bottom of a collapsed bar. Repeating it here is the
+  // difference between "a preference changed colour" and "five tools just
+  // stopped existing".
+  const offered = ALL_TOOLS.filter((tool) => tool.available(state)).length
 
   return (
     <fieldset className="guardrail trustDial" data-testid="trust-dial">
@@ -297,6 +287,10 @@ function TrustDial({ level }: { level: TrustLevel }) {
           </label>
         ))}
       </div>
+      <p className="trustCount" data-testid="trust-count">
+        <strong>{offered}</strong> of {ALL_TOOLS.length} tools registered for
+        the agent right now
+      </p>
       <p className="guardrailHint" data-testid="trust-hint">
         {TRUST_HINT[level]}
       </p>

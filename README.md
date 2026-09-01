@@ -147,9 +147,15 @@ waiting on your decision is withdrawn with the tool.
 
 The trust level and `minGroupSize` (k-anonymity) are read from the workspace on
 every call and **cannot be set by a tool argument**. An agent that tries to pass
-`minGroupSize` or `trustLevel` is rejected for an unexpected property. Group by
-a high-cardinality column with the threshold raised and the small groups
-collapse into a suppressed count instead of enumerating individuals.
+`minGroupSize` or `trustLevel` is rejected for an unexpected property.
+
+`minGroupSize` ships at **5, not off**: a privacy control that starts disabled
+protects the sessions nobody has. Any answer computed from fewer than five
+records is suppressed, however the set got small — by grouping, by filtering,
+or by asking how many rows matched. Load the sample and ask for revenue by
+sales rep and you get nothing back, because no rep closed five deals; ask by
+region and you get all four, because each region has exactly five. That is the
+threshold doing its job, in the state you first meet the page in.
 
 ---
 
@@ -178,9 +184,9 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run verify       # lint + typecheck + unit tests + production build
-npm run test         # 401 unit and integration tests (Vitest)
+npm run test         # 433 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # 60 end-to-end tests against the production build
+npm run e2e          # 66 end-to-end tests against the production build
 ```
 
 `npm run e2e` needs browsers once: `npx playwright install chromium`.
@@ -212,16 +218,20 @@ header pill tells you which one you are in.
 
 **A two-minute tour, in any browser:**
 
-1. Click **or load a sample dataset**. The ledger on the right now reads
-   *955 B kept local · 0 B released*.
-2. Open the **Tool Inspector** at the bottom. Note it went from 2 tools to 8,
-   and that `sample_rows` is not among them.
-3. Select `query_dataset`, press **Call**. Aggregates come back; the ledger
-   records exactly how many bytes the agent received.
-4. In the left rail, set the trust level to **Sealed**. Watch the Inspector
-   drop to 3 tools — the agent can no longer compute anything from your data.
-5. Set it to **Raw**. Nine tools; `sample_rows` has appeared. Call it. The app
-   stops and asks you, quoting the agent's stated reason. Press **Don't allow**.
+1. Press **Load the sample dataset**. The ledger on the right now reads
+   *955 B kept local · 0 B released*, and the left rail says **8 of 11 tools
+   registered for the agent right now**.
+2. Open the **Tool Inspector** at the bottom. It went from *2 of 11* to *8 of
+   11*, and `sample_rows` is not among them.
+3. Select `query_dataset`, press **Call** with the example arguments. Aggregates
+   come back; the ledger records exactly how many bytes the agent received.
+   Now change `groupBy` to `["rep"]` and call again — **nothing comes back**.
+   No sales rep closed five deals, and the threshold is five.
+4. In the left rail, set the trust level to **Sealed**. The Inspector drops to
+   *3 of 11*: the agent can no longer compute anything from your data.
+5. Set it to **Raw**. *9 of 11*, and `sample_rows` has appeared. Call it. The
+   app stops and asks you, quoting the agent's stated reason. Press **Don't
+   allow**.
 6. Call it once more and press **Allow this once**. Watch the **raw rows**
    counter in the ledger go from 0 to 2, and the released bytes tick up.
 
@@ -282,6 +292,17 @@ one that does less.
 - **A determined agent could still probe.** Repeated narrow queries leak more
   than one broad one. `minGroupSize`, the row and character caps, and the ledger
   raise the cost and make it visible; they do not make it impossible.
+- **Numeric bounds are real values.** `min`, `max` and `median` on a numeric
+  column are by construction somebody's actual number. That is what a statistic
+  on a numeric column is. They are refused outright on text columns, where the
+  minimum of a `name` column is a person.
+- **Sealed still names things.** At the lowest trust level `list_datasets` still
+  returns the file name, the column names and the row count. Sealed guarantees
+  nothing is *computed from* your data, not that the page says nothing.
+- **`sample_rows` has no offset.** It returns the first n rows, always, so the
+  raw exposure of a session is bounded to the first five records however often
+  it is asked.
+- **Files above 25 MB are refused** at the drop zone, before parsing.
 - **Date parsing is deliberately strict.** ISO-like formats only. `03/04/2026`
   is ambiguous between two continents, so it stays text rather than being
   guessed at.
