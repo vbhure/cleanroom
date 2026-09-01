@@ -321,3 +321,40 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await Promise.resolve()
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
+
+describe('annotation defaults', () => {
+  it('publishes both annotation hints even when a tool sets neither', async () => {
+    const context = createLocalModelContext()
+
+    await context.registerTool({
+      name: 'bare',
+      description: 'A tool that declares no annotations at all.',
+      execute: () => ({ ok: true }),
+    })
+
+    // The ToolAnnotations dictionary defaults both members to false, so an
+    // agent must never have to distinguish "absent" from "false".
+    const [tool] = await context.getTools()
+    expect(tool?.annotations).toEqual({
+      readOnlyHint: false,
+      untrustedContentHint: false,
+    })
+  })
+
+  it('preserves hints a tool does set', async () => {
+    const context = createLocalModelContext()
+
+    await context.registerTool({
+      name: 'flagged',
+      description: 'A tool that declares both annotation hints explicitly.',
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: () => ({ ok: true }),
+    })
+
+    const [tool] = await context.getTools()
+    expect(tool?.annotations).toEqual({
+      readOnlyHint: true,
+      untrustedContentHint: true,
+    })
+  })
+})

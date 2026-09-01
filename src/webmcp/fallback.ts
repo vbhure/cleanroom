@@ -102,7 +102,14 @@ class LocalModelContext extends EventTarget implements ModelContext {
         ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
         window: globalThis.window,
         origin,
-        ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+        // The ToolAnnotations dictionary defaults both members to false, so a
+        // native implementation always reports them. Applying the defaults here
+        // means an agent sees the same shape either way, and an absent hint is
+        // never mistaken for an unknown one.
+        annotations: {
+          readOnlyHint: tool.annotations?.readOnlyHint ?? false,
+          untrustedContentHint: tool.annotations?.untrustedContentHint ?? false,
+        },
       })),
     )
   }
