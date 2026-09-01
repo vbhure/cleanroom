@@ -18,7 +18,7 @@ Let ChatGPT analyse your spreadsheet without ever uploading it.
 | Field | Value |
 | --- | --- |
 | Live URL | `«NETLIFY URL»` |
-| Repository | `«GITHUB URL»` |
+| Repository | https://github.com/vbhure/cleanroom |
 | Video | `«YOUTUBE URL»` |
 | License | MIT, at repository root |
 
@@ -181,10 +181,10 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Resident of an eligible country (India not excluded) | ✅ | Confirmed by entrant | — |
 | Solo entry permitted | ✅ | Official rules | — |
 | WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`; `src/tools/` | — |
-| Built during submission window (from 25 Aug 2026) | ✅ | 8 commits, all dated 1 Sep 2026 | — |
+| Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
 | Functions consistently on its platform | ✅ | 55 E2E tests across 4 viewports; 3 browser modes | Re-verify on live URL |
-| Public code repository | 🔴 | 8 commits on local `main`, clean tree | **Push to GitHub** |
-| Open-source license visible at repo root | ✅ | `LICENSE` (MIT), committed first | Verify visible in About |
+| Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
+| Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
 | Complete source + run instructions | ✅ | README: install, verify, build, deploy | — |
 | Documented tool registration in repo | ✅ | `src/tools/registry.ts`, `docs/TOOLS.md` | — |
 | Working live URL | 🔴 | Build verified; `netlify.toml` committed | **Deploy to Netlify** |
@@ -205,5 +205,4 @@ Capture at 1280×800, dark theme, using the sample dataset.
 **Legend:** ✅ done with evidence · ⚠️ done but needs confirmation on the live
 deployment · 🔴 outstanding.
 
-Four items are outstanding and three of them are a single unblock away: push,
-deploy, record, submit.
+Three items are outstanding: deploy, record the video, submit.
