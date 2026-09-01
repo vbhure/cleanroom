@@ -1,0 +1,130 @@
+/*
+ * Cleanroom design tokens.
+ *
+ * Light is defined on bare :root; dark overrides only the tokens. The three
+ * "risk" colours are not decorative — they map 1:1 to the WebMCP tool risk
+ * classes (read-only / reversible write / gated) used throughout the app.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f7f8fa;
+  --bg-raised: #ffffff;
+  --bg-sunken: #eef0f4;
+  --bg-input: #ffffff;
+
+  --border: #dde1e8;
+  --border-strong: #c3cad6;
+
+  --text: #16191f;
+  --text-muted: #5b6472;
+  --text-faint: #8a93a2;
+
+  --accent: #0d7d8c;
+  --accent-hover: #0a6975;
+  --accent-fg: #ffffff;
+  --accent-soft: #e0f2f4;
+
+  --risk-read: #0f7a4a;
+  --risk-read-soft: #e2f4ea;
+  --risk-write: #a76a00;
+  --risk-write-soft: #fdf0da;
+  --risk-gated: #b4232b;
+  --risk-gated-soft: #fde8e8;
+
+  --shadow: 0 1px 2px rgb(16 25 40 / 6%), 0 4px 12px rgb(16 25 40 / 5%);
+  --radius: 10px;
+  --radius-sm: 6px;
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo,
+    Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0e1116;
+    --bg-raised: #161a21;
+    --bg-sunken: #0a0d11;
+    --bg-input: #1b2029;
+
+    --border: #262c36;
+    --border-strong: #39414e;
+
+    --text: #e7eaef;
+    --text-muted: #99a2b0;
+    --text-faint: #6b7482;
+
+    --accent: #2bb3c4;
+    --accent-hover: #46c7d7;
+    --accent-fg: #04181b;
+    --accent-soft: #10333a;
+
+    --risk-read: #3fbd82;
+    --risk-read-soft: #102c20;
+    --risk-write: #d9a04a;
+    --risk-write-soft: #2e2413;
+    --risk-gated: #e8636c;
+    --risk-gated-soft: #331518;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px rgb(0 0 0 / 30%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.25;
+  font-weight: 620;
+  letter-spacing: -0.011em;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
