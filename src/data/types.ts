@@ -23,6 +23,13 @@ export interface Column {
   type: ColumnType
   /** Dense, length === Dataset.rowCount. */
   values: CellValue[]
+  /**
+   * Cells that held something, but not something of this column's type, and so
+   * became null during coercion. Counted at parse time because the raw text is
+   * not retained — this is the only chance to notice. Surfaced by anomaly
+   * detection as a data-quality signal.
+   */
+  invalidCount: number
 }
 
 export interface Dataset {

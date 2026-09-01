@@ -7,7 +7,7 @@
  */
 
 import { parseCsv } from './csv'
-import { coerceCell, inferColumnType } from './infer'
+import { coerceCell, inferColumnType, isNullish } from './infer'
 import type { Column, Dataset } from './types'
 
 /** Above this the browser tab starts to feel it; we truncate and say so. */
@@ -63,11 +63,17 @@ export function buildDataset({
   const columns: Column[] = parsed.header.map((columnName, index) => {
     const raw = rows.map((row) => row[index] ?? '')
     const type = inferColumnType(raw)
-    return {
-      name: columnName,
-      type,
-      values: raw.map((cell) => coerceCell(cell, type)),
-    }
+
+    let invalidCount = 0
+    const values = raw.map((cell) => {
+      const value = coerceCell(cell, type)
+      // A cell that held content but did not survive coercion is a data-quality
+      // problem the human should hear about, not something to swallow.
+      if (value === null && !isNullish(cell)) invalidCount += 1
+      return value
+    })
+
+    return { name: columnName, type, values, invalidCount }
   })
 
   return {
