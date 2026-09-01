@@ -7,15 +7,13 @@
  * https://developer.chrome.com/docs/ai/webmcp/secure-tools
  */
 
-import Ajv from 'ajv'
 import { describe, expect, it } from 'vitest'
 import { ALL_TOOLS } from './index'
+import { findUnsupportedKeywords, validateAgainstSchema } from './schema'
 
 const MAX_NAME = 30
 const MAX_DESCRIPTION = 500
 const MAX_PARAM_DESCRIPTION = 150
-
-const ajv = new Ajv({ allErrors: true, strict: false })
 
 describe('tool metadata budgets', () => {
   it.each(ALL_TOOLS.map((tool) => [tool.name, tool] as const))(
@@ -56,9 +54,23 @@ describe('tool naming', () => {
 
 describe('tool schemas', () => {
   it.each(ALL_TOOLS.map((tool) => [tool.name, tool] as const))(
-    '%s advertises a schema Ajv can compile',
+    '%s uses only keywords the validator actually enforces',
     (_name, tool) => {
-      expect(() => ajv.compile(tool.inputSchema)).not.toThrow()
+      // A keyword we do not implement would look like a constraint while
+      // enforcing nothing, which is the worst way for a validator to fail.
+      expect(findUnsupportedKeywords(tool.inputSchema)).toEqual([])
+    },
+  )
+
+  it.each(ALL_TOOLS.map((tool) => [tool.name, tool] as const))(
+    '%s rejects an argument object with an unknown property',
+    (_name, tool) => {
+      const problems = validateAgainstSchema(tool.inputSchema, {
+        definitelyNotARealParameter: true,
+      })
+      expect(problems.some((p) => p.message.includes('unexpected property'))).toBe(
+        true,
+      )
     },
   )
 

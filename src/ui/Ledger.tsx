@@ -1,0 +1,94 @@
+/**
+ * The egress ledger.
+ *
+ * Every tool call an agent makes is itemised here with its risk class, the
+ * number of characters the agent received, and any raw rows released. It turns
+ * "your data stays local" from a claim into a running account the person can
+ * audit at a glance.
+ *
+ * Refusals are listed too. Seeing that an agent asked for something and was
+ * turned down is at least as informative as seeing what it got.
+ */
+
+import { workspace } from '../state/workspace'
+import type { EgressEntry, RiskClass } from '../state/workspace'
+import { formatCount, formatTime } from './format'
+import { useWorkspace } from './useWorkspace'
+
+const RISK_LABEL: Record<RiskClass, string> = {
+  read: 'read',
+  write: 'write',
+  gated: 'gated',
+}
+
+export function Ledger() {
+  const state = useWorkspace()
+  const characters = workspace.totalCharactersReleased()
+  const rows = workspace.totalRowsReleased()
+
+  return (
+    <aside className="rail railRight" aria-label="Egress ledger">
+      <h2 className="railHeading">Released to the agent</h2>
+
+      <div className="ledgerTotals">
+        <div className="ledgerTotal">
+          <span className="ledgerTotalValue">{characters.toLocaleString()}</span>
+          <span className="ledgerTotalLabel">characters</span>
+        </div>
+        <div className="ledgerTotal">
+          <span
+            className={`ledgerTotalValue${rows > 0 ? ' ledgerTotalAlert' : ''}`}
+            data-testid="rows-released"
+          >
+            {rows.toLocaleString()}
+          </span>
+          <span className="ledgerTotalLabel">raw rows</span>
+        </div>
+        <div className="ledgerTotal">
+          <span className="ledgerTotalValue">{state.egress.length}</span>
+          <span className="ledgerTotalLabel">tool calls</span>
+        </div>
+      </div>
+
+      <p className="ledgerNote">
+        Your file itself never leaves this tab. This is everything derived from
+        it that an agent has seen.
+      </p>
+
+      {state.egress.length === 0 ? (
+        <p className="railEmpty">No agent has called a tool yet.</p>
+      ) : (
+        <ol className="ledgerList" data-testid="ledger-list">
+          {state.egress.map((entry) => (
+            <LedgerRow key={entry.id} entry={entry} />
+          ))}
+        </ol>
+      )}
+    </aside>
+  )
+}
+
+function LedgerRow({ entry }: { entry: EgressEntry }) {
+  return (
+    <li className="ledgerRow">
+      <div className="ledgerRowHead">
+        <span className={`riskDot risk-${entry.risk}`} title={RISK_LABEL[entry.risk]} />
+        <code className="ledgerTool">{entry.tool}</code>
+        <span className="ledgerTime">{formatTime(entry.at)}</span>
+      </div>
+
+      <p className="ledgerSummary">{entry.summary}</p>
+
+      <p className="ledgerMeta">
+        {formatCount(entry.characters, 'character')}
+        {entry.rowsReleased > 0 ? (
+          <span className="ledgerRaw">
+            {' '}
+            · {formatCount(entry.rowsReleased, 'raw row')}
+          </span>
+        ) : null}
+        {entry.truncated ? ' · truncated to fit the budget' : null}
+      </p>
+    </li>
+  )
+}

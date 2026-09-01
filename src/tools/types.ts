@@ -12,8 +12,9 @@ import type { RiskClass, WorkspaceState, WorkspaceStore } from '../state/workspa
 
 export type { RiskClass } from '../state/workspace'
 
-/** A JSON Schema object. Deliberately loose: Ajv is the real validator. */
-export type JsonSchema = Record<string, unknown>
+import type { JsonSchema } from './schema'
+
+export type { JsonSchema } from './schema'
 
 export interface ToolContext {
   workspace: WorkspaceStore

@@ -11,7 +11,8 @@ test.describe('application shell', () => {
     await page.goto('/')
 
     await expect(page).toHaveTitle(/Cleanroom/)
-    await expect(page.getByText('Your data never leaves this tab')).toBeVisible()
+    await expect(page.getByText('Drop a CSV here')).toBeVisible()
+    await expect(page.getByText('The report is empty')).toBeVisible()
     await expect(page.getByTestId('env-pill')).toContainText('WebMCP:')
 
     expect(consoleErrors).toEqual([])

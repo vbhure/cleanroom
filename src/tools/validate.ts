@@ -1,44 +1,23 @@
 /**
  * Input validation.
  *
- * The schema we advertise to the agent is the schema Ajv enforces — there is
- * one object, used for both, so a tool cannot claim to accept something it
- * rejects. Validation failures come back as structured, actionable errors
- * rather than exceptions, because the caller is usually a model that can fix
- * its own mistake if told precisely what was wrong.
+ * The schema we advertise to the agent is the schema we enforce — one object,
+ * used for both, so a tool cannot claim to accept something it rejects.
+ * Failures come back as structured, actionable errors rather than exceptions,
+ * because the caller is usually a model that can fix its own mistake if told
+ * precisely what was wrong.
  *
- * Prototype-polluting keys are rejected before Ajv ever sees the input. A JSON
- * payload is attacker-influenced data — it arrives from a page an agent was
- * reading, and that page may not be ours.
+ * Prototype-polluting keys are rejected before the schema is consulted at all.
+ * Tool arguments are attacker-influenced data: they arrive from an agent that
+ * has been reading a page, and that page may not be ours.
  */
 
-import Ajv from 'ajv'
-import type { ErrorObject, ValidateFunction } from 'ajv'
-import type { JsonSchema, ToolFailure } from './types'
+import type { JsonSchema, Problem } from './schema'
+import { validateAgainstSchema } from './schema'
+import type { ToolFailure } from './types'
 import { fail } from './types'
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
-
-const ajv = new Ajv({
-  allErrors: true,
-  // Our schemas are authored by hand and kept simple; strict mode's
-  // metaschema opinions add nothing here.
-  strict: false,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-})
-
-const compiled = new WeakMap<JsonSchema, ValidateFunction>()
-
-function compile(schema: JsonSchema): ValidateFunction {
-  const existing = compiled.get(schema)
-  if (existing) return existing
-
-  const validator = ajv.compile(schema)
-  compiled.set(schema, validator)
-  return validator
-}
 
 /** Depth-limited scan for keys that would corrupt Object.prototype. */
 export function findForbiddenKey(value: unknown, depth = 0): string | undefined {
@@ -75,11 +54,9 @@ export function validateInput(
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return {
       ok: false,
-      failure: fail(
-        'invalid_input',
-        'Tool arguments must be a JSON object.',
-        { received: input === null ? 'null' : typeof input },
-      ),
+      failure: fail('invalid_input', 'Tool arguments must be a JSON object.', {
+        received: input === null ? 'null' : typeof input,
+      }),
     }
   }
 
@@ -94,45 +71,27 @@ export function validateInput(
     }
   }
 
-  const validator = compile(schema)
-  if (validator(input)) {
+  const problems = validateAgainstSchema(schema, input)
+  if (problems.length === 0) {
     return { ok: true, value: input as Record<string, unknown> }
   }
 
   return {
     ok: false,
-    failure: fail(
-      'invalid_input',
-      describeErrors(validator.errors ?? []),
-      { problems: (validator.errors ?? []).slice(0, 8).map(describeError) },
-    ),
+    failure: fail('invalid_input', describeProblems(problems), {
+      problems: problems.slice(0, 8).map(describeProblem),
+    }),
   }
 }
 
-function describeError(error: ErrorObject): string {
-  const path = error.instancePath === '' ? 'input' : error.instancePath.slice(1)
-
-  if (error.keyword === 'additionalProperties') {
-    const extra = (error.params as { additionalProperty?: string })
-      .additionalProperty
-    return `${path} has an unexpected property "${extra}".`
-  }
-  if (error.keyword === 'required') {
-    const missing = (error.params as { missingProperty?: string }).missingProperty
-    return `${path} is missing the required property "${missing}".`
-  }
-  if (error.keyword === 'enum') {
-    const allowed = (error.params as { allowedValues?: unknown[] }).allowedValues
-    return `${path} must be one of: ${(allowed ?? []).join(', ')}.`
-  }
-
-  return `${path} ${error.message ?? 'is invalid'}.`
+function describeProblem(problem: Problem): string {
+  return `${problem.path} ${problem.message}.`
 }
 
-function describeErrors(errors: readonly ErrorObject[]): string {
-  if (errors.length === 0) return 'The arguments did not match the tool schema.'
-  const first = describeError(errors[0] as ErrorObject)
-  return errors.length === 1
+function describeProblems(problems: readonly Problem[]): string {
+  const first = describeProblem(problems[0] as Problem)
+
+  return problems.length === 1
     ? first
-    : `${first} (and ${errors.length - 1} other problem${errors.length === 2 ? '' : 's'})`
+    : `${first} (and ${problems.length - 1} other problem${problems.length === 2 ? '' : 's'})`
 }
