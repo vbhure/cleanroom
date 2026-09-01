@@ -103,7 +103,8 @@ export function ApprovalModal() {
         data-testid="approval-modal"
       >
         <p className="modalKicker">
-          <span className="riskDot risk-gated" /> An agent is asking permission
+          <span aria-hidden="true" className="riskDot risk-gated" /> An agent is
+          asking permission
         </p>
 
         <h2 className="modalTitle" id="approval-title">

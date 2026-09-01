@@ -20,6 +20,12 @@ interface InspectorProps {
   onToggle: () => void
 }
 
+const RISK_DESCRIPTION: Record<RiskClass, string> = {
+  read: 'read-only',
+  write: 'writes to the report, reversible',
+  gated: 'needs your approval',
+}
+
 const EXAMPLES: Record<string, unknown> = {
   list_datasets: {},
   describe_columns: { dataset: 'sample_sales', columns: ['deal_size'] },
@@ -169,9 +175,14 @@ export function Inspector({ open, onToggle }: InspectorProps) {
                     onClick={() => choose(tool.name)}
                   >
                     <span
+                      aria-hidden="true"
                       className={`riskDot risk-${(spec?.risk ?? 'read') as RiskClass}`}
                     />
                     <code>{tool.name}</code>
+                    {/* The dot is colour; this is the same fact in words. */}
+                    <span className="visually-hidden">
+                      {RISK_DESCRIPTION[(spec?.risk ?? 'read') as RiskClass]}
+                    </span>
                   </button>
                 </li>
               )

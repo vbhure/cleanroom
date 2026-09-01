@@ -258,6 +258,7 @@ function Guardrails({
  */
 function TrustDial({ level }: { level: TrustLevel }) {
   const name = useId()
+  const hintId = useId()
   const state = useWorkspace()
 
   // The dial's real consequence is the size of the agent's menu, and that
@@ -267,7 +268,11 @@ function TrustDial({ level }: { level: TrustLevel }) {
   const offered = ALL_TOOLS.filter((tool) => tool.available(state)).length
 
   return (
-    <fieldset className="guardrail trustDial" data-testid="trust-dial">
+    <fieldset
+      className="guardrail trustDial"
+      data-testid="trust-dial"
+      aria-describedby={hintId}
+    >
       <legend className="guardrailLabel">Trust level</legend>
       <div className="trustOptions">
         {TRUST_LEVELS.map((option) => (
@@ -291,7 +296,16 @@ function TrustDial({ level }: { level: TrustLevel }) {
         <strong>{offered}</strong> of {ALL_TOOLS.length} tools registered for
         the agent right now
       </p>
-      <p className="guardrailHint" data-testid="trust-hint">
+      {/*
+        Announced when the group takes focus, and again when the level changes:
+        the hint is the whole explanation of what the person just did.
+      */}
+      <p
+        id={hintId}
+        className="guardrailHint"
+        data-testid="trust-hint"
+        aria-live="polite"
+      >
         {TRUST_HINT[level]}
       </p>
     </fieldset>

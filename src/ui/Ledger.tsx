@@ -93,8 +93,9 @@ function LedgerRow({ entry }: { entry: EgressEntry }) {
   return (
     <li className="ledgerRow">
       <div className="ledgerRowHead">
-        <span className={`riskDot risk-${entry.risk}`} title={RISK_LABEL[entry.risk]} />
+        <span aria-hidden="true" className={`riskDot risk-${entry.risk}`} />
         <code className="ledgerTool">{entry.tool}</code>
+        <span className="visually-hidden">{RISK_LABEL[entry.risk]}</span>
         <span className="ledgerTime">{formatTime(entry.at)}</span>
       </div>
 
