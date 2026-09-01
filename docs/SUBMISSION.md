@@ -182,10 +182,10 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Solo entry permitted | ✅ | Official rules | — |
 | WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`; `src/tools/` | — |
 | Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
-| Functions consistently on its platform | ✅ | 55 E2E tests across 4 viewports; 3 browser modes | Re-verify on live URL |
+| Functions consistently on its platform | ✅ | 55 E2E tests across 4 viewports; CI green on clean Ubuntu runner (run 33542619620) | Re-verify on live URL |
 | Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
 | Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
-| Complete source + run instructions | ✅ | README: install, verify, build, deploy | — |
+| Complete source + run instructions | ✅ | README: install, verify, build, deploy; CI proves a clean clone builds and passes | — |
 | Documented tool registration in repo | ✅ | `src/tools/registry.ts`, `docs/TOOLS.md` | — |
 | Working live URL | 🔴 | Build verified; `netlify.toml` committed | **Deploy to Netlify** |
 | Reachable in ChatGPT browser or Chrome 149+ | ⚠️ | Imperative API only; no iframes, no declarative forms — both unsupported by ChatGPT's browser | Verify on live URL |

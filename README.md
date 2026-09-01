@@ -1,5 +1,8 @@
 # Cleanroom
 
+[![CI](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml/badge.svg)](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 **Analyse a spreadsheet with an AI agent without ever uploading it.**
 
 Cleanroom is a local-first analysis workspace built for the
@@ -141,9 +144,9 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run verify       # lint + typecheck + unit tests + production build
-npm run test         # 366 unit and integration tests (Vitest)
+npm run test         # 368 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # 41 end-to-end tests against the production build
+npm run e2e          # 55 end-to-end tests against the production build
 ```
 
 `npm run e2e` needs browsers once: `npx playwright install chromium`.
