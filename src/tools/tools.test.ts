@@ -223,14 +223,12 @@ describe('query_dataset', () => {
       aggregate: [{ op: 'count' }],
     })
 
-    // Ada and Cleo have 2 rows; Bob and Dev have 1 each. That suppression
-    // happened is reported; how much was suppressed is not, because the counts
-    // were themselves an oracle.
+    // Ada and Cleo have 2 rows; Bob and Dev have 1 each. Nothing in the
+    // response says which, or that anything was withheld at all — the policy
+    // note is identical on every answer.
     expect(payload(outcome).rows).toHaveLength(2)
-    expect(payload(outcome).suppressed).toMatchObject({
-      reason: expect.stringContaining('2'),
-    })
-    expect((payload(outcome).suppressed as Record<string, unknown>).rows).toBeUndefined()
+    expect(payload(outcome).suppressed).toBeUndefined()
+    expect((payload(outcome).privacy as Record<string, unknown>).minGroupSize).toBe(2)
   })
 
   it('rejects an attempt to pass minGroupSize as an argument', async () => {
@@ -654,7 +652,7 @@ describe('the counters must not republish what the threshold withheld', () => {
     expect(payload(outcome).totalGroups).toBe(0)
   })
 
-  it('still tells the agent what happened and what to do about it', async () => {
+  it('still tells the agent the rule, so it can plan rather than probe', async () => {
     loadSales()
 
     const outcome = await call('query_dataset', {
@@ -663,10 +661,11 @@ describe('the counters must not republish what the threshold withheld', () => {
       aggregate: [{ op: 'count' }],
     })
 
-    const suppressed = payload(outcome).suppressed as Record<string, unknown>
-    expect(suppressed).toBeTruthy()
-    expect(String(suppressed.reason)).toContain('5')
-    expect(String(suppressed.reason)).toMatch(/widen/i)
+    // The rule, not the outcome. Stated the same way whether or not this
+    // particular query lost anything to it.
+    const privacy = payload(outcome).privacy as Record<string, unknown>
+    expect(privacy.minGroupSize).toBe(5)
+    expect(String(privacy.note)).toMatch(/widen/i)
   })
 })
 
@@ -901,6 +900,75 @@ describe('every analytical tool honours the same policy', () => {
     // At five it may not, and the payload says why rather than going silent.
     expect(withheld).not.toContain('3200000')
     expect(withheld).toContain('boundsWithheld')
+  })
+})
+
+describe('suppression must not be observable at all', () => {
+  // Masking the counts left the KEY. Whether `suppressed` appeared was itself
+  // one bit about the data — "some group here is below the threshold" — and a
+  // bit per query is all a reconstruction attack needs. The response shape is
+  // now identical whether or not anything was withheld, and the policy is
+  // stated the same way every time.
+
+  it('returns the same shape whether or not something was withheld', async () => {
+    loadSales()
+
+    // North has three rows and clears a threshold of two; every rep group is
+    // below it, so this pair differs only in whether suppression happened.
+    const nothingWithheld = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'count' }],
+    })
+    const somethingWithheld = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'count' }],
+    })
+
+    expect(Object.keys(payload(nothingWithheld)).sort()).toEqual(
+      Object.keys(payload(somethingWithheld)).sort(),
+    )
+    expect(payload(nothingWithheld).privacy).toEqual(
+      payload(somethingWithheld).privacy,
+    )
+    expect(payload(nothingWithheld).suppressed).toBeUndefined()
+    expect(payload(somethingWithheld).suppressed).toBeUndefined()
+  })
+
+  it('two filters that differ only in whether a group fell below k look identical', async () => {
+    loadSales()
+
+    // Both return no rows. One because nothing matched, one because what
+    // matched was too small. An agent must not be able to tell which.
+    const tooSmall = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Dev' }],
+      aggregate: [{ op: 'count' }],
+    })
+    const noSuchPerson = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Nobody At All' }],
+      aggregate: [{ op: 'count' }],
+    })
+
+    expect(JSON.stringify(payload(tooSmall))).toBe(
+      JSON.stringify(payload(noSuchPerson)),
+    )
+  })
+
+  it('still states the policy, on every response, so an agent can plan', async () => {
+    loadSales()
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'count' }],
+    })
+
+    const privacy = payload(outcome).privacy as Record<string, unknown>
+    expect(privacy.minGroupSize).toBe(5)
+    expect(String(privacy.note)).toMatch(/without notice/i)
   })
 })
 

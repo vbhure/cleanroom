@@ -266,18 +266,32 @@ Stated plainly.
   This is the most important limitation in this document, and it is a property
   of exact aggregate release rather than a bug we have left in.
 
-  Our own red team did it: pick two subsets of the file that are the same size,
-  differing by one row. Each is comfortably above the threshold at both ends,
-  so each is answered. The difference between the two sums is that one row's
-  value. Repeat, and the column falls out.
+  There are two routes, and the cheap one is much cheaper than we first wrote
+  down. An earlier version of this document said reconstruction cost about one
+  call per record. That was wrong, and flattering:
 
-  > **20 of 20 exact values from the sample in 21 permitted calls, zero
-  > refusals. 300 of 300 salaries from a 300-row file at a threshold of 25.**
+  **Order statistics.** `min`, `max` and `median` return exact cell values, and
+  a query may ask for several aggregates across several groups at once. One
+  permitted call at the shipped default returns twelve of them:
 
-  Raising k does not help: the two subsets are always the same size, so the
-  threshold is structurally irrelevant. This is the Dinur–Nissim
-  reconstruction result, and every system that answers exact aggregates over
-  attacker-chosen subsets has it. The real defences are noise (differential
+  ```
+  query_dataset  groupBy: [region]  aggregate: [min, max, median] of deal_size
+  → [["North",3100,33000,8200], ["South",4700,275000,7300],
+     ["East",2200,96000,15800], ["West",1900,22400,10150]]
+  ```
+
+  Every one of those minima and maxima is one person's exact deal. A twenty-row
+  file gives up most of a column in **two or three calls**, not twenty-one.
+
+  **Differencing.** Pick two subsets the same size, differing by one row. Each
+  clears the threshold at both ends, so each is answered; the difference of the
+  two sums is that row. Our red team recovered 20 of 20 values from the sample
+  and 300 of 300 salaries from a 300-row file at a threshold of 25.
+
+  Raising k does not help either route: the subsets are always the same size,
+  and order statistics are released whenever k records sit behind them. This is
+  the Dinur–Nissim reconstruction result, and every system that answers exact
+  aggregates over attacker-chosen subsets has it. The real defences are noise (differential
   privacy) or a query budget that escalates to the human after a number of
   calls. **Cleanroom currently has neither**, and its honest claim is
   therefore narrower than "your data is safe from an adversarial agent":

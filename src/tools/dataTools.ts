@@ -332,18 +332,15 @@ export const queryDataset: ToolSpec = {
             }
           : {}),
         ...(result.truncated ? { truncated: true } : {}),
-        // That suppression happened is actionable; how much was suppressed is
-        // the disclosure itself. Reporting the counts handed back the exact
-        // figure `matchedRows` had just been masked to hide, which made this
-        // an existence oracle ("no rows" for a name not in the file) and an
-        // exact predicate oracle for any filter an agent cared to build.
-        ...(result.suppressedGroups > 0
-          ? {
-              suppressed: {
-                reason: `Results computed from fewer than ${spec.minGroupSize} records are hidden to protect individuals. Widen the query.`,
-              },
-            }
-          : {}),
+        // Not conditional, and that is the point. Masking the counts left the
+        // KEY: whether `suppressed` appeared was one bit about the data —
+        // "something here is below the threshold" — and one bit per query is
+        // all a reconstruction attack needs. The policy is stated identically
+        // on every response instead, so the shape of an answer carries nothing.
+        privacy: {
+          minGroupSize: spec.minGroupSize,
+          note: `Groups of fewer than ${spec.minGroupSize} records, and groups leaving fewer than ${spec.minGroupSize} outside them, are omitted without notice. Widen the query rather than narrowing it.`,
+        },
       },
       summary: `Queried "${resolved.dataset.id}": ${result.rows.length} aggregate row${result.rows.length === 1 ? '' : 's'} over ${result.matchedRows} matching record${result.matchedRows === 1 ? '' : 's'}.`,
     }

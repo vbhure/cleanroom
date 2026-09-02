@@ -469,7 +469,12 @@ test.describe('the guardrails belong to the human', () => {
       aggregate: [{ op: 'count' }],
     })
     const parsed = honest.parsed as Record<string, unknown>
-    expect(parsed.suppressed).toBeTruthy()
+    // Every rep group is below five, so nothing survives. The response says
+    // nothing about that: whether suppression happened was itself one bit of
+    // data, and the policy note is now identical on every answer.
+    expect(parsed.rows).toEqual([])
+    expect(parsed.suppressed).toBeUndefined()
+    expect((parsed.privacy as Record<string, unknown>).minGroupSize).toBe(5)
   })
 
   test('a dataset with an injection payload cannot instruct the agent', async ({
