@@ -289,6 +289,43 @@ test.describe('the human gate cannot be bypassed through the interface', () => {
     expect(fired).toBeGreaterThanOrEqual(2)
   })
 
+  test('the interface itself says a withdrawn tool is gone, in front of the person', async ({
+    page,
+  }) => {
+    // The distinction this project rests on is that the dial UNREGISTERS a
+    // tool rather than making it refuse, and those are indistinguishable if
+    // the tool merely vanishes from the screen. The Inspector keeps the handle
+    // getTools() gave out, so the person can call it anyway and read what
+    // comes back — a DOMException from the WebMCP implementation, not a
+    // structured refusal from Cleanroom.
+    await loadSample(page)
+    await setTrust(page, 'raw')
+    await page.getByTestId('inspector-toggle').click()
+
+    await page.getByTestId('tool-list').getByText('sample_rows', { exact: true }).click()
+    await expect(page.getByTestId('tool-run')).toBeVisible()
+
+    await setTrust(page, 'aggregates')
+
+    // It is gone from the published list...
+    await expect(
+      page.getByTestId('tool-list').getByText('sample_rows', { exact: true }),
+    ).toBeHidden()
+    // ...but the panel stays, and says why.
+    await expect(page.getByTestId('tool-withdrawn')).toBeVisible()
+    await expect(page.getByTestId('tool-withdrawn')).toContainText('not refused')
+
+    await page.getByTestId('tool-run-stale').click()
+
+    const result = page.getByTestId('tool-result')
+    await expect(result).toBeVisible()
+    await expect(result).toContainText('No tool named')
+    await expect(result).toContainText('sample_rows')
+    // Nothing was released, and nobody was asked.
+    await expect(page.getByTestId('approval-modal')).toBeHidden()
+    await expect(page.getByTestId('rows-released')).toHaveText('0')
+  })
+
   test('a handle captured at raw is dead once the dial comes down', async ({
     page,
   }) => {
