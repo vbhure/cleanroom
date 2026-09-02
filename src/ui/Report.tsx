@@ -12,10 +12,11 @@
 
 import { useMemo, useState } from 'react'
 import { runQuery } from '../data/query'
+import type { Filter } from '../data/query'
 import { buildSampleDataset } from '../data/sample'
 import type { QueryResult } from '../data/query'
 import { aggregationName } from '../data/query'
-import { createId, workspace } from '../state/workspace'
+import { createId, effectiveMinGroupSize, workspace } from '../state/workspace'
 import type { ChartBlock, NoteBlock, ReportBlock } from '../state/workspace'
 import { Chart } from './Chart'
 import type { ChartPoint } from './Chart'
@@ -232,24 +233,35 @@ function NoteBlockBody({ block }: { block: NoteBlock }) {
   )
 }
 
+const EMPTY_FILTER: Filter[] = []
+
 function ChartBlockBody({ block }: { block: ChartBlock }) {
   const state = useWorkspace()
   const dataset = state.datasets.find(
     (candidate) => candidate.id === block.spec.dataset,
   )
 
+  // Read once so the memo depends on values rather than on the whole store.
+  const floor = effectiveMinGroupSize(state)
+  const filters = dataset ? (state.filters[dataset.id] ?? EMPTY_FILTER) : EMPTY_FILTER
+
   const outcome = useMemo(() => {
     if (!dataset) return undefined
 
     return runQuery(dataset, {
-      where: state.filters[dataset.id] ?? [],
+      where: filters,
       groupBy: [block.spec.groupBy],
       aggregate: [block.spec.aggregate],
       orderBy: block.spec.orderBy ? [block.spec.orderBy] : undefined,
       limit: block.spec.limit ?? 20,
-      minGroupSize: state.minGroupSize,
+      // The floor, not the raw setting. A chart drawn straight from
+      // state.minGroupSize painted every individual record onto the page while
+      // the tool that made it correctly returned nothing and the ledger
+      // recorded no release — the screen contradicting both the policy and the
+      // receipt.
+      minGroupSize: floor,
     })
-  }, [dataset, block.spec, state.filters, state.minGroupSize])
+  }, [dataset, block.spec, filters, floor])
 
   if (!dataset) {
     return (

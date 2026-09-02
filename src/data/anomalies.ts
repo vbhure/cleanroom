@@ -101,7 +101,7 @@ export function detectAnomalies(
       pushIf(anomalies, detectOutliers(column, minGroupSize))
     }
     if (kinds.has('gaps') && column.type === 'date') {
-      pushIf(anomalies, detectGaps(column))
+      pushIf(anomalies, detectGaps(column, minGroupSize))
     }
   }
 
@@ -239,7 +239,7 @@ function detectOutliers(column: Column, minGroupSize: number): Anomaly | undefin
   }
 }
 
-function detectGaps(column: Column): Anomaly | undefined {
+function detectGaps(column: Column, minGroupSize: number): Anomaly | undefined {
   const days = new Set<number>()
   for (const value of column.values) {
     if (typeof value === 'number') days.add(Math.floor(value / DAY_MS))
@@ -274,10 +274,21 @@ function detectGaps(column: Column): Anomaly | undefined {
     detail: {
       gaps: gapCount,
       longestGapDays: largestGap - 1,
-      longestGapAfter: isoDay(gapStart),
-      firstDay: isoDay(sorted[0] as number),
-      lastDay: isoDay(sorted.at(-1) as number),
-      daysCovered: sorted.length,
+      // The boundary days are exact cell values, and `daysCovered` says how
+      // many there are. On a sparsely populated column those three fields
+      // reconstruct the whole thing — next to describe_columns, which had
+      // just refused to report min and max on the same column. The shape of
+      // the coverage is the finding; the dates themselves are the data.
+      ...(sorted.length >= minGroupSize
+        ? {
+            longestGapAfter: isoDay(gapStart),
+            firstDay: isoDay(sorted[0] as number),
+            lastDay: isoDay(sorted.at(-1) as number),
+            daysCovered: sorted.length,
+          }
+        : {
+            datesWithheld: `Fewer than ${minGroupSize} days are covered, so naming them would reveal the records themselves.`,
+          }),
     },
   }
 }

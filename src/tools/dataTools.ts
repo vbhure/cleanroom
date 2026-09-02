@@ -16,7 +16,9 @@ import { runQuery } from '../data/query'
 import type { Aggregation, Filter, OrderBy, QuerySpec } from '../data/query'
 import type { Dataset } from '../data/types'
 import type { WorkspaceState, WorkspaceStore } from '../state/workspace'
-import { trustAllows } from '../state/workspace'
+import { AGGREGATE_FLOOR, effectiveMinGroupSize, trustAllows } from '../state/workspace'
+
+export { AGGREGATE_FLOOR, effectiveMinGroupSize }
 import type { JsonSchema, ToolOutcome, ToolSpec } from './types'
 import { fail } from './types'
 
@@ -117,30 +119,6 @@ export function resolveDataset(
   }
 
   return { ok: true, dataset }
-}
-
-/**
- * The threshold actually in force, which is not always the one the person
- * typed.
- *
- * The trust dial and the group-size input used to be able to contradict each
- * other. The dial promised "only aggregates, never a record"; the input said
- * "1 turns it off". At 1 the promise was false — grouping by every column
- * returned complete verbatim rows, names included, while the ledger recorded
- * an ordinary read that released no rows.
- *
- * The dial wins, because it is the coarser and more visible of the two, and
- * because "Aggregates" has to mean something. Below Raw the threshold is
- * floored at two, so no answer is ever computed from a single record. At Raw
- * the person has already accepted record-level access behind the approval
- * prompt, so their own number stands.
- */
-export const AGGREGATE_FLOOR = 2
-
-export function effectiveMinGroupSize(state: WorkspaceState): number {
-  return trustAllows(state.trustLevel, 'raw')
-    ? state.minGroupSize
-    : Math.max(AGGREGATE_FLOOR, state.minGroupSize)
 }
 
 const hasDataset = (state: WorkspaceState) => state.datasets.length > 0

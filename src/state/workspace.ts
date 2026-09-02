@@ -142,6 +142,29 @@ const INITIAL_STATE: WorkspaceState = {
   pendingApproval: null,
 }
 
+/**
+ * How many records must sit behind any single answer.
+ *
+ * Not always the number the person typed. The trust dial and the group-size
+ * input used to contradict each other: the dial promised "only aggregates,
+ * never a record" while the input said "1 turns it off", and at 1 the promise
+ * was false. Below Raw the threshold is floored, so "Aggregates" means
+ * something. At Raw the person has already accepted record-level access behind
+ * the approval prompt, so their own number stands.
+ *
+ * This lives in the store rather than the tool layer because the chart
+ * renderer needs it too — and when it did not have it, a chart drew every
+ * individual record onto the page while the tool that created it correctly
+ * returned nothing and the ledger recorded no release.
+ */
+export const AGGREGATE_FLOOR = 2
+
+export function effectiveMinGroupSize(state: WorkspaceState): number {
+  return trustAllows(state.trustLevel, 'raw')
+    ? state.minGroupSize
+    : Math.max(AGGREGATE_FLOOR, state.minGroupSize)
+}
+
 /** Keeps the ledger bounded; the newest entries are the ones anyone reads. */
 export const MAX_EGRESS_ENTRIES = 200
 

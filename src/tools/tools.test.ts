@@ -813,6 +813,64 @@ describe('every analytical tool honours the same policy', () => {
     expect(JSON.stringify(outcome.payload)).not.toContain('4200000')
   })
 
+  it('gives detect_anomalies no way around what describe_columns withheld', async () => {
+    // The gaps detector was the one that never received the threshold. It
+    // reported firstDay, lastDay and longestGapAfter — three exact cell values
+    // — plus daysCovered, which says how many dates exist. On a sparse column
+    // that reconstructs the lot, sitting next to a profiler that had just
+    // refused to report min and max on the same column.
+    workspace.addDataset(
+      buildDataset({
+        name: 'sparse.csv',
+        text: [
+          'ref,signed_on',
+          'a,2026-01-02',
+          'b,2026-03-20',
+          'c,2026-07-11',
+          ...Array.from({ length: 7 }, (_, index) => `x${index},`),
+        ].join('\n'),
+      }),
+    )
+
+    const profiled = JSON.stringify(
+      (await call('describe_columns', { dataset: 'sparse', columns: ['signed_on'] }))
+        .payload,
+    )
+    const anomalies = JSON.stringify(
+      (await call('detect_anomalies', { dataset: 'sparse', kinds: ['gaps'] })).payload,
+    )
+
+    // The profiler refuses; the anomaly detector must not undo that.
+    expect(profiled).toContain('statisticsWithheld')
+    for (const date of ['2026-01-02', '2026-03-20', '2026-07-11']) {
+      expect(profiled, `profile leaked ${date}`).not.toContain(date)
+      expect(anomalies, `anomalies leaked ${date}`).not.toContain(date)
+    }
+    expect(anomalies).toContain('datesWithheld')
+  })
+
+  it('still describes the shape of the coverage when enough days sit behind it', async () => {
+    workspace.addDataset(
+      buildDataset({
+        name: 'dense.csv',
+        text: [
+          'ref,signed_on',
+          ...['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05', '2026-03-01'].map(
+            (day, index) => `r${index},${day}`,
+          ),
+        ].join('\n'),
+      }),
+    )
+
+    const anomalies = JSON.stringify(
+      (await call('detect_anomalies', { dataset: 'dense', kinds: ['gaps'] })).payload,
+    )
+
+    // Six days, threshold five: the gap is a real data-quality finding.
+    expect(anomalies).toContain('longestGapDays')
+    expect(anomalies).toContain('firstDay')
+  })
+
   it('the threshold reaches detect_anomalies at all', async () => {
     // Two outliers, so there is a value to name or withhold depending on where
     // the person has put the dial. Previously the dial did not reach this tool
