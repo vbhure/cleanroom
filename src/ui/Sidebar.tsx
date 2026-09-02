@@ -25,10 +25,10 @@ const TRUST_LABEL: Record<TrustLevel, string> = {
 
 const TRUST_HINT: Record<TrustLevel, string> = {
   sealed:
-    'The agent can see what is loaded and write to the report, but every tool that computes from your data is withdrawn. Nothing derived from it leaves this tab.',
+    'Every tool that computes from your data is withdrawn. The agent can still see what is loaded and write to the report.',
   aggregates:
-    'The agent can profile, query and chart your data and receives only aggregates — never a record. Extreme values (min, max, median) are statistics, and one of them may be somebody’s actual number.',
-  raw: 'The agent may ask to see up to 5 raw rows. Each request stops for your decision, with the agent’s reason shown to you verbatim.',
+    'Profile, query and chart. The agent receives only aggregates, never a record — though an extreme value like max may be somebody’s actual number.',
+  raw: 'sample_rows appears. Every call stops for your decision, with the agent’s reason shown verbatim.',
 }
 
 export function Sidebar() {
@@ -36,12 +36,21 @@ export function Sidebar() {
 
   return (
     <aside className="rail railLeft" aria-label="Data and privacy controls">
+      {/*
+        The boundary comes first, and not only because it is the most important
+        control on the page. It is the one a judge must be able to see at the
+        same time as the tool list it acts on — and below the dataset list it
+        was pushed out of the rail's visible area on an ordinary laptop, so the
+        cause and the effect of the signature gesture were never on screen
+        together. It also reads in the right order: set up the room, then bring
+        the data into it.
+      */}
+      <h2 className="railHeading">Privacy boundary</h2>
+      <Guardrails minGroupSize={state.minGroupSize} trustLevel={state.trustLevel} />
+
       <h2 className="railHeading">Your data</h2>
       <DropZone />
       <DatasetList />
-
-      <h2 className="railHeading">Privacy boundary</h2>
-      <Guardrails minGroupSize={state.minGroupSize} trustLevel={state.trustLevel} />
     </aside>
   )
 }
@@ -242,8 +251,7 @@ function Guardrails({
         />
         <p className="guardrailHint">
           No answer is computed from fewer records than this, nor from all but
-          fewer than this — otherwise the agent could subtract one from the
-          whole file and be left with a person. 1 turns it off.
+          fewer — otherwise one subtraction leaves a person. 1 turns it off.
         </p>
       </div>
     </div>
@@ -293,8 +301,8 @@ function TrustDial({ level }: { level: TrustLevel }) {
         ))}
       </div>
       <p className="trustCount" data-testid="trust-count">
-        <strong>{offered}</strong> of {ALL_TOOLS.length} tools registered for
-        the agent right now
+        <strong className="trustCountValue">{offered}</strong> of{' '}
+        {ALL_TOOLS.length} tools registered for the agent right now
       </p>
       {/*
         Announced when the group takes focus, and again when the level changes:

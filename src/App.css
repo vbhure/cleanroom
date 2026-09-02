@@ -1,8 +1,13 @@
 /* ---------------------------------------------------------------- shell -- */
 
+/*
+ * Flex rather than a fixed grid-template-rows, because the banner row is
+ * conditional: with it absent the tracks shifted by one and the body stopped
+ * being the flexible row, leaving dead space under the Tool Inspector.
+ */
 .app {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 100%;
 }
@@ -25,7 +30,7 @@
 
 .brandName {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 660;
   letter-spacing: -0.02em;
 }
@@ -89,6 +94,7 @@
 .appBody {
   display: grid;
   grid-template-columns: 320px 1fr 340px;
+  flex: 1;
   min-height: 0;
 }
 
@@ -401,10 +407,20 @@
   color: var(--text-muted);
 }
 
-.trustCount strong {
+.trustCount {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 6px;
+}
+
+.trustCountValue {
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  font-weight: 660;
+  font-weight: 680;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.02em;
 }
 
 /*
@@ -429,7 +445,7 @@
 }
 
 .reportEmpty {
-  max-width: 520px;
+  max-width: 600px;
   margin: 9vh auto 0;
   text-align: center;
   color: var(--text-muted);
@@ -437,10 +453,10 @@
 
 .reportEmpty h2 {
   color: var(--text);
-  font-size: 22px;
-  line-height: 1.3;
-  letter-spacing: -0.015em;
-  margin-bottom: 10px;
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin-bottom: 14px;
 }
 
 .reportEmpty p {
@@ -697,7 +713,7 @@
 
 .ledgerBalance strong {
   color: var(--text);
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 680;
 }
 

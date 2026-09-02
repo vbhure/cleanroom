@@ -104,9 +104,8 @@ function EmptyReport({ hasData }: { hasData: boolean }) {
     <div className="reportEmpty">
       <h2>The agent gets tools. It never gets the file.</h2>
       <p>
-        Drop a CSV here and it is parsed in this tab. The page then offers an
-        AI agent tools to profile, query and chart it — and you decide, live,
-        how many of those tools exist.
+        Parsed in this tab, never uploaded. You decide, live, how many tools
+        the agent gets.
       </p>
       <p className="reportEmptyProof">
         <code>connect-src &apos;none&apos;</code>
