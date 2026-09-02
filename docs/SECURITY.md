@@ -125,12 +125,28 @@ small:
 
 - **Grouping.** Group by `email` and every group below the threshold collapses
   into a suppressed count rather than a list of people.
-- **Filtering.** This is the one that matters, and it was the gap. The
-  threshold used to apply only when grouping, on the reasoning that "an
-  ungrouped total reveals nothing about any individual". That is true of the
-  whole file and false the moment a `where` narrows it: filter to one person
-  and `max(salary)` over the remainder *is* that person's salary. Any result
-  computed from fewer than k matching rows is now suppressed too.
+- **Filtering.** The threshold used to apply only when grouping, on the
+  reasoning that "an ungrouped total reveals nothing about any individual".
+  That is true of the whole file and false the moment a `where` narrows it:
+  filter to one person and `max(salary)` over the remainder *is* that person's
+  salary. Any result computed from fewer than k matching rows is suppressed.
+- **Subtraction, which is the one that actually bit.** Guarding only the small
+  end is not enough, because the whole-file total is always available. An
+  answer covering all-but-a-few records is a person in disguise:
+
+  ```
+  sum(deal_size)                       over 20 rows -> 616,500
+  sum(deal_size) where closed_on != X  over 19 rows -> 341,500
+  difference                                        ->  275,000
+  ```
+
+  Two individually permitted queries, one person's exact figure, both logged as
+  ordinary reads. The threshold therefore holds at **both ends**: a complement
+  smaller than k is refused on the same rule as a group smaller than k, and for
+  a grouped query both complements are checked — within the matched set and
+  within the file — because both totals are obtainable. Found by an adversarial
+  review of this project, not in the wild; the regression tests are in
+  `src/data/query.test.ts` under "the differencing attack".
 - **The count itself.** `matchedRows` is withheld on the same rule. "Exactly
   one record matches this email address" identifies that record as surely as
   returning it would, and so does "no record matches" — the two are the same

@@ -470,6 +470,100 @@ describe('runQuery — the query-set-size restriction', () => {
   })
 })
 
+describe('runQuery — the differencing attack', () => {
+  // The threshold used to guard only the small end. An aggregate over the whole
+  // file is always available, so an answer covering all-but-one record let an
+  // agent subtract its way to that record in two individually permitted calls.
+  // Both ends are guarded now.
+
+  it('refuses an aggregate over all but a handful of records', () => {
+    const whole = expectOk(
+      runQuery(sales(), { aggregate: [{ op: 'sum', column: 'amount' }], minGroupSize: 3 }),
+    )
+    const allButOne = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'rep', op: 'ne', value: 'Dev' }],
+        aggregate: [{ op: 'sum', column: 'amount' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    // The whole file is still answerable: it describes the dataset, not a person.
+    expect(whole.rows).toEqual([[1775]])
+    // Its complement is one row, so the near-total is not.
+    expect(allButOne.rows).toEqual([])
+    expect(allButOne.matchedRowsIdentifying).toBe(true)
+  })
+
+  it('closes the subtraction that reconstructed one person exactly', () => {
+    // Dev's single 900 deal was recoverable as whole minus everyone-but-Dev.
+    const whole = expectOk(
+      runQuery(sales(), { aggregate: [{ op: 'sum', column: 'amount' }], minGroupSize: 3 }),
+    )
+    const rest = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'rep', op: 'ne', value: 'Dev' }],
+        aggregate: [{ op: 'sum', column: 'amount' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    const total = whole.rows[0]?.[0] as number
+    expect(rest.rows[0]).toBeUndefined()
+    expect(JSON.stringify(rest.rows)).not.toContain('875')
+    expect(total).toBe(1775)
+  })
+
+  it('suppresses a group whose complement is below the threshold', () => {
+    // Six of seven rows in one group leaves one row in the other: showing the
+    // big group hands over the small one by subtraction.
+    const lopsided = buildDataset({
+      name: 'lopsided.csv',
+      text: [
+        'team,amount',
+        ...Array.from({ length: 6 }, () => 'Bulk,100'),
+        'Solo,4242',
+      ].join('\n'),
+    })
+
+    const result = expectOk(
+      runQuery(lopsided, {
+        groupBy: ['team'],
+        aggregate: [{ op: 'sum', column: 'amount' }],
+        minGroupSize: 3,
+      }),
+    )
+
+    expect(result.rows).toEqual([])
+    expect(result.suppressedGroups).toBe(2)
+    expect(JSON.stringify(result.rows)).not.toContain('4242')
+    expect(JSON.stringify(result.rows)).not.toContain('600')
+  })
+
+  it('still answers an ordinary partition where both sides clear the threshold', () => {
+    // The demo query: four regions of five rows each, complement fifteen.
+    const result = expectOk(
+      runQuery(sales(), {
+        groupBy: ['region'],
+        aggregate: [{ op: 'count' }],
+        minGroupSize: 2,
+      }),
+    )
+
+    expect(result.rows.length).toBeGreaterThan(0)
+    expect(result.suppressedGroups).toBe(2)
+  })
+
+  it('leaves the whole file answerable, which is the one safe complement', () => {
+    const result = expectOk(
+      runQuery(sales(), { ...countAll, minGroupSize: 100 }),
+    )
+
+    expect(result.rows).toEqual([[7]])
+    expect(result.matchedRowsIdentifying).toBe(false)
+  })
+})
+
 describe('runQuery — errors are actionable', () => {
   it('lists the real columns when one is misspelled', () => {
     const error = expectError(

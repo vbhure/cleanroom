@@ -27,7 +27,7 @@ const TRUST_HINT: Record<TrustLevel, string> = {
   sealed:
     'The agent can see what is loaded and write to the report, but every tool that computes from your data is withdrawn. Nothing derived from it leaves this tab.',
   aggregates:
-    'The agent can profile, query and chart your data and receives only aggregates. The one tool that could reveal a record is not offered at all.',
+    'The agent can profile, query and chart your data and receives only aggregates — never a record. Extreme values (min, max, median) are statistics, and one of them may be somebody’s actual number.',
   raw: 'The agent may ask to see up to 5 raw rows. Each request stops for your decision, with the agent’s reason shown to you verbatim.',
 }
 
@@ -241,9 +241,9 @@ function Guardrails({
           }}
         />
         <p className="guardrailHint">
-          No answer is computed from fewer records than this, however the agent
-          narrows it — by grouping, by filtering, or by asking how many rows
-          matched. 1 turns it off.
+          No answer is computed from fewer records than this, nor from all but
+          fewer than this — otherwise the agent could subtract one from the
+          whole file and be left with a person. 1 turns it off.
         </p>
       </div>
     </div>

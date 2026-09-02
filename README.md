@@ -152,10 +152,18 @@ every call and **cannot be set by a tool argument**. An agent that tries to pass
 `minGroupSize` ships at **5, not off**: a privacy control that starts disabled
 protects the sessions nobody has. Any answer computed from fewer than five
 records is suppressed, however the set got small — by grouping, by filtering,
-or by asking how many rows matched. Load the sample and ask for revenue by
-sales rep and you get nothing back, because no rep closed five deals; ask by
-region and you get all four, because each region has exactly five. That is the
-threshold doing its job, in the state you first meet the page in.
+or by asking how many rows matched.
+
+It also holds at the **other** end, which is the part that is easy to miss. The
+whole-file total is always available, so an answer covering all-but-a-few
+records is a person in disguise: `sum(deal_size)` minus `sum(deal_size) where
+closed_on != X` is one deal. A complement smaller than the threshold is refused
+on the same rule as a group smaller than it.
+
+Load the sample and ask for revenue by sales rep and you get nothing back,
+because no rep closed five deals; ask by region and you get all four, because
+each region has exactly five. That is the threshold doing its job, in the state
+you first meet the page in.
 
 ---
 

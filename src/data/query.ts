@@ -7,12 +7,11 @@
  *    this path — that requires the separate, human-gated `sample_rows` tool.
  *    Without this rule an agent could drain a dataset one SELECT at a time.
  *
- * 2. Results honour a k-anonymity threshold the human controls. Any number
- *    computed from fewer than k records is suppressed, however the narrowing
- *    happened: group by a high-cardinality column such as `email` and the
- *    small groups collapse into a count, and filter down to one person with a
- *    `where` and the ungrouped aggregate collapses the same way. The single
- *    exception is an aggregate over the whole file, which describes the
+ * 2. Results honour a k-anonymity threshold the human controls, at both ends.
+ *    Any number computed from fewer than k records is suppressed, however the
+ *    narrowing happened — and so is any number computed from all but fewer
+ *    than k, because the whole-file total is always available to subtract it
+ *    from. The single exception is the whole file itself, which describes the
  *    dataset the person loaded rather than anyone in it, and whose size is
  *    already public through `list_datasets`.
  *
@@ -237,17 +236,49 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
   const kept: GroupEntry[] = []
 
   // A result computed from fewer than `minGroupSize` records describes those
-  // records rather than a population, whether the narrowing came from a
-  // `groupBy` or from a `where`. The one case that is not a disclosure is an
-  // aggregate over the whole file: that describes the dataset the person
-  // loaded, and its size is already public through list_datasets. So the rule
-  // is "too few rows behind this number, and it is not the whole file".
-  const wholeDataset = matchingRows.length === dataset.rowCount
+  // records rather than a population, however the narrowing happened — by a
+  // `groupBy` or by a `where`.
+  //
+  // The threshold has to hold at BOTH ends, and this is the part that is easy
+  // to get wrong. An aggregate over the whole file is always available, so any
+  // answer covering all-but-a-few records lets the agent subtract:
+  //
+  //   sum(deal_size)                        over 20 rows -> 616,500
+  //   sum(deal_size) where closed_on != X   over 19 rows -> 341,500
+  //   difference                                         -> 275,000
+  //
+  // Two individually permitted queries, one person's exact figure. So a
+  // complement smaller than the threshold is as identifying as a group
+  // smaller than the threshold, and is refused on the same rule.
+  //
+  // A complement of exactly zero is the one safe case: that is the whole file,
+  // which describes the dataset the person loaded rather than anyone in it,
+  // and whose size is already public through list_datasets.
+  const identifies = (rows: number): boolean => {
+    if (minGroupSize <= 1) return false // the threshold is off
+
+    // The whole file is the one safe answer at any threshold: it describes the
+    // dataset the person loaded rather than anyone in it, and its size is
+    // already public through list_datasets. This has to come first, or a file
+    // smaller than the threshold would answer nothing at all.
+    if (rows === dataset.rowCount) return false
+
+    if (rows < minGroupSize) return true // too few records behind the number
+
+    // Both complements matter, because both totals are obtainable: the whole
+    // file always, and the matched set by re-running the same filter without a
+    // groupBy. Either subtraction isolates the remainder.
+    const outsideThisGroup = matchingRows.length - rows
+    const outsideTheFilter = dataset.rowCount - rows
+
+    return (
+      (outsideThisGroup > 0 && outsideThisGroup < minGroupSize) ||
+      (outsideTheFilter > 0 && outsideTheFilter < minGroupSize)
+    )
+  }
 
   for (const group of groups) {
-    // A threshold of 1 is off, so it must not catch the empty result either.
-    const identifying = minGroupSize > 1 && group.rows.length < minGroupSize
-    if (identifying && (groupBy.length > 0 || !wholeDataset)) {
+    if (identifies(group.rows.length)) {
       suppressedGroups += 1
       suppressedRows += group.rows.length
       continue
@@ -326,8 +357,7 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
       truncated: totalGroups > limit,
       suppressedGroups,
       suppressedRows,
-      matchedRowsIdentifying:
-        minGroupSize > 1 && matchingRows.length < minGroupSize && !wholeDataset,
+      matchedRowsIdentifying: identifies(matchingRows.length),
     },
   }
 }
