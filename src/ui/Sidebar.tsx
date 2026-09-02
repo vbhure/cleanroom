@@ -250,8 +250,9 @@ function Guardrails({
           }}
         />
         <p className="guardrailHint">
-          No answer is computed from fewer records than this, nor from all but
-          fewer — otherwise one subtraction leaves a person. 1 turns it off.
+          No single answer is computed from fewer records than this, nor from
+          all but fewer. It does not stop an agent combining many permitted
+          answers — see the threat model. Below Raw the floor is 2.
         </p>
       </div>
     </div>

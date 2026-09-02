@@ -116,6 +116,16 @@ export interface WorkspaceState {
   /** The trust dial. Decides which tools are registered at all. */
   trustLevel: TrustLevel
   egress: EgressEntry[]
+  /**
+   * The account, which is not the same thing as the list above.
+   *
+   * `egress` is a rolling window of the newest entries, bounded so a long
+   * session cannot grow without limit. Totals were computed from that window,
+   * which meant an agent could erase its own receipt: approve a raw-row
+   * release, make two hundred cheap calls, and the raw-rows counter went back
+   * to zero. These only ever increase.
+   */
+  released: { characters: number; rows: number; calls: number }
   pendingApproval: ApprovalRequest | null
 }
 
@@ -128,6 +138,7 @@ const INITIAL_STATE: WorkspaceState = {
   minGroupSize: DEFAULT_MIN_GROUP_SIZE,
   trustLevel: 'aggregates',
   egress: [],
+  released: { characters: 0, rows: 0, calls: 0 },
   pendingApproval: null,
 }
 
@@ -293,17 +304,31 @@ export class WorkspaceStore {
   recordEgress(entry: Omit<EgressEntry, 'id' | 'at'>): EgressEntry {
     const full: EgressEntry = { ...entry, id: createId('egress'), at: Date.now() }
     const egress = [full, ...this.state.egress].slice(0, MAX_EGRESS_ENTRIES)
+    const { released } = this.state
 
-    this.commit({ ...this.state, egress })
+    this.commit({
+      ...this.state,
+      egress,
+      released: {
+        characters: released.characters + entry.characters,
+        rows: released.rows + entry.rowsReleased,
+        calls: released.calls + 1,
+      },
+    })
     return full
   }
 
+  /** Everything ever released, including entries the window has since dropped. */
   totalCharactersReleased(): number {
-    return this.state.egress.reduce((total, entry) => total + entry.characters, 0)
+    return this.state.released.characters
   }
 
   totalRowsReleased(): number {
-    return this.state.egress.reduce((total, entry) => total + entry.rowsReleased, 0)
+    return this.state.released.rows
+  }
+
+  totalToolCalls(): number {
+    return this.state.released.calls
   }
 
   /** Bytes of source data held in this tab — the other side of the ledger. */

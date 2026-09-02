@@ -265,7 +265,10 @@ describe('tool execution through the WebMCP interface', () => {
   it('returns a JSON string an agent can parse', async () => {
     loadSales()
     // Six rows in groups of one to three: the shipped threshold would suppress
-    // every one of them, correctly. This test is about the JSON round trip.
+    // every one of them, correctly. This test is about the JSON round trip, and
+    // single-row groups are only answerable at the raw level, where the person
+    // has accepted record access.
+    workspace.setTrustLevel('raw')
     workspace.setMinGroupSize(1)
     await settle()
 

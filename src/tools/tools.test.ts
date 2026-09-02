@@ -39,8 +39,14 @@ function loadSales() {
  * shipped default of five every result is suppressed — correctly, but that
  * tells us nothing about whether the aggregation itself works. What the
  * default does is asserted in "the minimum group size" below.
+ *
+ * The trust level has to move too. Below Raw the threshold is floored at two
+ * however low the person sets it, because "Aggregates" promises never to
+ * compute an answer from a single record — so a single-row group is only
+ * answerable at the level where the person has accepted record access.
  */
 function openThreshold() {
+  workspace.setTrustLevel('raw')
   workspace.setMinGroupSize(1)
 }
 
@@ -217,9 +223,14 @@ describe('query_dataset', () => {
       aggregate: [{ op: 'count' }],
     })
 
-    // Ada and Cleo have 2 rows; Bob and Dev have 1 each.
+    // Ada and Cleo have 2 rows; Bob and Dev have 1 each. That suppression
+    // happened is reported; how much was suppressed is not, because the counts
+    // were themselves an oracle.
     expect(payload(outcome).rows).toHaveLength(2)
-    expect(payload(outcome).suppressed).toMatchObject({ groups: 2, rows: 2 })
+    expect(payload(outcome).suppressed).toMatchObject({
+      reason: expect.stringContaining('2'),
+    })
+    expect((payload(outcome).suppressed as Record<string, unknown>).rows).toBeUndefined()
   })
 
   it('rejects an attempt to pass minGroupSize as an argument', async () => {
@@ -583,6 +594,258 @@ describe('the minimum group size, at the tool boundary', () => {
   })
 })
 
+describe('the counters must not republish what the threshold withheld', () => {
+  // A red team recovered a named person's exact deal size in twenty calls using
+  // nothing but these numbers. `matchedRows` was masked and then the identical
+  // figure was handed back as `suppressed.rows`, which also answered "does this
+  // person exist" (0 rows) and "how many reps are in the file" (suppressedGroups).
+
+  it('does not hand back the matched count it just masked', async () => {
+    loadSales()
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Ada' }],
+      aggregate: [{ op: 'count' }],
+    })
+
+    const serialised = JSON.stringify(outcome.payload)
+    expect(payload(outcome).matchedRows).toBe('fewer than 5')
+    // Ada has two rows. That number must not appear anywhere in the payload.
+    const suppressed = payload(outcome).suppressed as Record<string, unknown>
+    expect(suppressed?.rows).toBeUndefined()
+    expect(suppressed?.groups).toBeUndefined()
+    expect(serialised).not.toMatch(/"rows":\s*2/)
+  })
+
+  it('cannot be used as an existence oracle', async () => {
+    loadSales()
+
+    const present = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Ada' }],
+      aggregate: [{ op: 'count' }],
+    })
+    const absent = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'rep', op: 'eq', value: 'Nobody At All' }],
+      aggregate: [{ op: 'count' }],
+    })
+
+    // Someone in the file and someone who is not must be indistinguishable.
+    expect(JSON.stringify(payload(present))).toBe(JSON.stringify(payload(absent)))
+  })
+
+  it('does not disclose how many groups the partition has', async () => {
+    loadSales()
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'count' }],
+      limit: 1,
+    })
+
+    // Six reps, all below the threshold. The cardinality of a protected column
+    // is itself a disclosure, and `limit` must not be a way to ask for it.
+    expect(JSON.stringify(outcome.payload)).not.toContain('4')
+    const suppressed = payload(outcome).suppressed as Record<string, unknown>
+    expect(suppressed?.groups).toBeUndefined()
+    expect(payload(outcome).totalGroups).toBe(0)
+  })
+
+  it('still tells the agent what happened and what to do about it', async () => {
+    loadSales()
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'count' }],
+    })
+
+    const suppressed = payload(outcome).suppressed as Record<string, unknown>
+    expect(suppressed).toBeTruthy()
+    expect(String(suppressed.reason)).toContain('5')
+    expect(String(suppressed.reason)).toMatch(/widen/i)
+  })
+})
+
+describe('Aggregates must never mean records, whatever the threshold says', () => {
+  // Two controls disagreed. The trust dial promised "only aggregates, never a
+  // record"; the group-size input said "1 turns it off". At 1 the promise was
+  // false: grouping by every column returned twenty complete verbatim rows,
+  // names included, and the ledger called it a read that released no rows.
+
+  it('refuses to return a record even when the person turns the threshold off', async () => {
+    loadSales()
+    workspace.setMinGroupSize(1)
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region', 'rep', 'amount'],
+      aggregate: [{ op: 'count' }],
+    })
+
+    const serialised = JSON.stringify(outcome.payload)
+    expect(payload(outcome).rows).toEqual([])
+    expect(serialised).not.toContain('Ada')
+    expect(serialised).not.toContain('900')
+  })
+
+  it('says so, rather than silently ignoring what the person set', async () => {
+    loadSales()
+    workspace.setMinGroupSize(1)
+
+    const privacy = payload(await call('list_datasets')).privacy as Record<
+      string,
+      unknown
+    >
+
+    // The person's setting is reported honestly, and so is the floor that the
+    // trust level imposes on top of it.
+    expect(privacy.minGroupSize).toBe(2)
+    expect(privacy.minGroupSizeRequested).toBe(1)
+    expect(String(privacy.note)).toMatch(/aggregates/i)
+  })
+
+  it('lets Raw honour the threshold the person actually chose', async () => {
+    loadSales()
+    workspace.setTrustLevel('raw')
+    workspace.setMinGroupSize(1)
+
+    const outcome = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'count' }],
+    })
+
+    // At Raw the person has already accepted record-level access, gated by the
+    // approval prompt. The floor is an Aggregates promise, not a global one.
+    expect((payload(outcome).rows as unknown[]).length).toBeGreaterThan(0)
+  })
+
+  it('applies the floor to describe_columns too', async () => {
+    loadSales()
+    workspace.setMinGroupSize(1)
+
+    const outcome = await call('describe_columns', {
+      dataset: 'sales',
+      columns: ['rep'],
+    })
+
+    const profiles = payload(outcome).profiles as Array<Record<string, unknown>>
+    expect(JSON.stringify(profiles)).not.toContain('Dev')
+  })
+})
+
+describe('every analytical tool honours the same policy', () => {
+  // A red team found the threshold was applied by query_dataset and nowhere
+  // else. describe_columns released min, max, mean, median and stdDev with no
+  // guard at all, and detect_anomalies was never passed the threshold, so the
+  // person's dial had literally no effect on it. Both returned exact values
+  // from single records while the ledger recorded "0 raw rows".
+
+  it('describe_columns withholds statistics computed from too few values', async () => {
+    // Two people have a bonus; the other four rows are blank. min, max, mean
+    // and median over two values are those two people's numbers.
+    workspace.addDataset(
+      buildDataset({
+        name: 'bonuses.csv',
+        text: [
+          'name,bonus',
+          'Ada,90000',
+          'Bob,110000',
+          'Cleo,',
+          'Dev,',
+          'Eve,',
+          'Fay,',
+        ].join('\n'),
+      }),
+    )
+
+    const outcome = await call('describe_columns', {
+      dataset: 'bonuses',
+      columns: ['bonus'],
+    })
+
+    const profile = (payload(outcome).profiles as Record<string, unknown>[])[0]
+    expect(profile?.min).toBeUndefined()
+    expect(profile?.max).toBeUndefined()
+    expect(profile?.mean).toBeUndefined()
+    expect(profile?.medianValue).toBeUndefined()
+    expect(String(profile?.statisticsWithheld)).toMatch(/fewer than/i)
+    const serialised = JSON.stringify(outcome.payload)
+    expect(serialised).not.toContain('90000')
+    expect(serialised).not.toContain('110000')
+  })
+
+  it('describe_columns still profiles a column with enough values behind it', async () => {
+    loadSales()
+
+    const profile = (
+      payload(await call('describe_columns', { dataset: 'sales', columns: ['amount'] }))
+        .profiles as Record<string, unknown>[]
+    )[0]
+
+    // Six populated values, threshold five: this is a population, not a person.
+    expect(typeof profile?.mean).toBe('number')
+    expect(profile?.statisticsWithheld).toBeUndefined()
+  })
+
+  it('detect_anomalies does not name an outlier that is one record', async () => {
+    workspace.addDataset(
+      buildDataset({
+        name: 'salaries.csv',
+        text: [
+          'name,salary',
+          ...Array.from({ length: 12 }, (_, index) => `P${index},${50000 + index * 10}`),
+          'Chief,4200000',
+        ].join('\n'),
+      }),
+    )
+
+    const outcome = await call('detect_anomalies', {
+      dataset: 'salaries',
+      kinds: ['outliers'],
+    })
+
+    // One person is the outlier. Their exact salary must not be the finding.
+    expect(JSON.stringify(outcome.payload)).not.toContain('4200000')
+  })
+
+  it('the threshold reaches detect_anomalies at all', async () => {
+    // Two outliers, so there is a value to name or withhold depending on where
+    // the person has put the dial. Previously the dial did not reach this tool
+    // and the numbers came out either way.
+    workspace.addDataset(
+      buildDataset({
+        name: 'pay.csv',
+        text: [
+          'name,pay',
+          ...Array.from({ length: 14 }, (_, index) => `P${index},${60000 + index * 5}`),
+          'ExecA,3100000',
+          'ExecB,3200000',
+        ].join('\n'),
+      }),
+    )
+
+    workspace.setMinGroupSize(2)
+    const named = JSON.stringify(
+      (await call('detect_anomalies', { dataset: 'pay', kinds: ['outliers'] })).payload,
+    )
+    workspace.setMinGroupSize(5)
+    const withheld = JSON.stringify(
+      (await call('detect_anomalies', { dataset: 'pay', kinds: ['outliers'] })).payload,
+    )
+
+    // Two records behind the finding: at a threshold of two it may be named.
+    expect(named).toContain('3200000')
+    // At five it may not, and the payload says why rather than going silent.
+    expect(withheld).not.toContain('3200000')
+    expect(withheld).toContain('boundsWithheld')
+  })
+})
+
 describe('bounded arguments', () => {
   it('refuses an array long enough to lock up the tab', async () => {
     loadSales()
@@ -866,11 +1129,43 @@ describe('the ledger under pressure', () => {
     )
   })
 
-  it('is honest that the released totals count only what it still holds', async () => {
-    // The cap bounds memory, and the totals are computed from the entries that
-    // remain — so a very long session under-reports rather than over-reports.
-    // That is the safe direction, and it is asserted here so a change of
-    // direction is a failing test rather than a silent one.
+  it('never lets an agent flush what it has already been given', async () => {
+    // The ledger keeps a rolling window of the newest entries. The TOTALS must
+    // not be computed from that window, or 200 cheap calls erase the record of
+    // an approved raw release — the agent quietly deleting its own receipt.
+    workspace.recordEgress({
+      tool: 'sample_rows',
+      risk: 'gated',
+      summary: 'Human approved releasing 2 raw rows.',
+      characters: 200,
+      rowsReleased: 2,
+      truncated: false,
+    })
+
+    expect(workspace.totalRowsReleased()).toBe(2)
+
+    for (let call = 0; call < MAX_EGRESS_ENTRIES + 20; call += 1) {
+      workspace.recordEgress({
+        tool: 'list_datasets',
+        risk: 'read',
+        summary: 'noise',
+        characters: 1,
+        rowsReleased: 0,
+        truncated: false,
+      })
+    }
+
+    // The window has rolled; the account has not.
+    expect(workspace.getState().egress).toHaveLength(MAX_EGRESS_ENTRIES)
+    expect(workspace.totalRowsReleased()).toBe(2)
+    expect(workspace.totalCharactersReleased()).toBe(200 + MAX_EGRESS_ENTRIES + 20)
+    expect(workspace.totalToolCalls()).toBe(MAX_EGRESS_ENTRIES + 21)
+  })
+
+  it('keeps a lifetime account even though it shows only the newest entries', async () => {
+    // The cap bounds memory. The totals are deliberately NOT computed from the
+    // surviving entries: an account that shrinks when the window rolls is an
+    // account an agent can flush.
     loadSales()
     openThreshold()
 
@@ -879,9 +1174,10 @@ describe('the ledger under pressure', () => {
     }
 
     const entries = workspace.getState().egress
-    const summed = entries.reduce((total, entry) => total + entry.characters, 0)
-    expect(workspace.totalCharactersReleased()).toBe(summed)
+    const inWindow = entries.reduce((total, entry) => total + entry.characters, 0)
     expect(entries).toHaveLength(MAX_EGRESS_ENTRIES)
+    expect(workspace.totalToolCalls()).toBe(MAX_EGRESS_ENTRIES + 5)
+    expect(workspace.totalCharactersReleased()).toBeGreaterThan(inWindow)
   })
 })
 

@@ -119,6 +119,30 @@ export function resolveDataset(
   return { ok: true, dataset }
 }
 
+/**
+ * The threshold actually in force, which is not always the one the person
+ * typed.
+ *
+ * The trust dial and the group-size input used to be able to contradict each
+ * other. The dial promised "only aggregates, never a record"; the input said
+ * "1 turns it off". At 1 the promise was false — grouping by every column
+ * returned complete verbatim rows, names included, while the ledger recorded
+ * an ordinary read that released no rows.
+ *
+ * The dial wins, because it is the coarser and more visible of the two, and
+ * because "Aggregates" has to mean something. Below Raw the threshold is
+ * floored at two, so no answer is ever computed from a single record. At Raw
+ * the person has already accepted record-level access behind the approval
+ * prompt, so their own number stands.
+ */
+export const AGGREGATE_FLOOR = 2
+
+export function effectiveMinGroupSize(state: WorkspaceState): number {
+  return trustAllows(state.trustLevel, 'raw')
+    ? state.minGroupSize
+    : Math.max(AGGREGATE_FLOOR, state.minGroupSize)
+}
+
 const hasDataset = (state: WorkspaceState) => state.datasets.length > 0
 
 /**
@@ -164,7 +188,13 @@ export const listDatasets: ToolSpec = {
         // trial and error, which wastes calls and looks like it is probing.
         privacy: {
           trustLevel: state.trustLevel,
-          minGroupSize: state.minGroupSize,
+          minGroupSize: effectiveMinGroupSize(state),
+          ...(effectiveMinGroupSize(state) !== state.minGroupSize
+            ? {
+                minGroupSizeRequested: state.minGroupSize,
+                note: `The person set ${state.minGroupSize}, but the "aggregates" trust level never computes an answer from a single record, so ${AGGREGATE_FLOOR} is in force.`,
+              }
+            : {}),
           rawRowAccess: trustAllows(state.trustLevel, 'raw')
             ? 'requires approval'
             : 'disabled',
@@ -208,7 +238,7 @@ export const describeColumns: ToolSpec = {
 
     const outcome = profileDataset(resolved.dataset, {
       columns: input.columns as string[] | undefined,
-      minGroupSize: workspace.getState().minGroupSize,
+      minGroupSize: effectiveMinGroupSize(workspace.getState()),
     })
 
     if (!outcome.ok) {
@@ -287,8 +317,9 @@ export const queryDataset: ToolSpec = {
       aggregate: input.aggregate as Aggregation[],
       orderBy: input.orderBy as OrderBy[] | undefined,
       limit: input.limit as number | undefined,
-      // Not taken from the agent: the human owns this setting.
-      minGroupSize: workspace.getState().minGroupSize,
+      // Not taken from the agent: the human owns this setting, subject to the
+      // floor the trust level imposes.
+      minGroupSize: effectiveMinGroupSize(workspace.getState()),
     }
 
     const outcome = runQuery(resolved.dataset, spec)
@@ -309,13 +340,28 @@ export const queryDataset: ToolSpec = {
         ...(result.matchedRowsIdentifying
           ? { matchedRows: `fewer than ${spec.minGroupSize}` }
           : { matchedRows: result.matchedRows }),
-        totalGroups: result.totalGroups,
+        // Only the groups that survived. The number of groups the partition
+        // actually has counts how many distinct values a protected column
+        // holds — six sales reps — and `limit` must not be a way to ask for it.
+        totalGroups: result.rows.length,
+        // Otherwise sum, avg and count look like they disagree.
+        ...(result.blanksSkipped.length > 0
+          ? {
+              blanksSkipped: {
+                columns: result.blanksSkipped,
+                note: 'sum, avg and median ignore blank cells; count counts rows. In a group with blanks, sum divided by count will not equal avg.',
+              },
+            }
+          : {}),
         ...(result.truncated ? { truncated: true } : {}),
+        // That suppression happened is actionable; how much was suppressed is
+        // the disclosure itself. Reporting the counts handed back the exact
+        // figure `matchedRows` had just been masked to hide, which made this
+        // an existence oracle ("no rows" for a name not in the file) and an
+        // exact predicate oracle for any filter an agent cared to build.
         ...(result.suppressedGroups > 0
           ? {
               suppressed: {
-                groups: result.suppressedGroups,
-                rows: result.suppressedRows,
                 reason: `Results computed from fewer than ${spec.minGroupSize} records are hidden to protect individuals. Widen the query.`,
               },
             }
@@ -365,6 +411,7 @@ export const detectAnomaliesTool: ToolSpec = {
     const outcome = detectAnomalies(resolved.dataset, {
       columns: input.columns as string[] | undefined,
       kinds: input.kinds as AnomalyKind[] | undefined,
+      minGroupSize: effectiveMinGroupSize(workspace.getState()),
     })
 
     if (!outcome.ok) {

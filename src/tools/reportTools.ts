@@ -16,7 +16,7 @@ import type { Aggregation, Filter, OrderBy } from '../data/query'
 import { columnNames, findColumn } from '../data/types'
 import type { ChartSpec, ChartType, WorkspaceState } from '../state/workspace'
 import { createId, trustAllows } from '../state/workspace'
-import { MAX_LIST_ITEMS, resolveDataset } from './dataTools'
+import { MAX_LIST_ITEMS, effectiveMinGroupSize, resolveDataset } from './dataTools'
 import type { JsonSchema, ToolSpec } from './types'
 import { fail } from './types'
 
@@ -161,7 +161,7 @@ export const addChart: ToolSpec = {
       aggregate: [spec.aggregate],
       orderBy: spec.orderBy ? [spec.orderBy] : undefined,
       limit: spec.limit,
-      minGroupSize: workspace.getState().minGroupSize,
+      minGroupSize: effectiveMinGroupSize(workspace.getState()),
     })
 
     if (!probe.ok) {
@@ -378,7 +378,7 @@ export const setReportFilter: ToolSpec = {
     // silently emptying every chart in the report. The threshold is the
     // person's, not 1: otherwise "how many rows match?" would be an exact
     // count oracle that query_dataset refuses to be.
-    const minGroupSize = workspace.getState().minGroupSize
+    const minGroupSize = effectiveMinGroupSize(workspace.getState())
     const probe = runQuery(resolved.dataset, {
       where: filters,
       aggregate: [{ op: 'count' }],

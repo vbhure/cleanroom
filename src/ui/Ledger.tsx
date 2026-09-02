@@ -26,6 +26,7 @@ export function Ledger() {
   const state = useWorkspace()
   const characters = workspace.totalCharactersReleased()
   const rows = workspace.totalRowsReleased()
+  const calls = workspace.totalToolCalls()
   const keptLocal = workspace.totalBytesKeptLocal()
 
   return (
@@ -64,7 +65,7 @@ export function Ledger() {
           <span className="ledgerTotalLabel">raw rows</span>
         </div>
         <div className="ledgerTotal">
-          <span className="ledgerTotalValue">{state.egress.length}</span>
+          <span className="ledgerTotalValue">{calls.toLocaleString()}</span>
           <span className="ledgerTotalLabel">tool calls</span>
         </div>
       </div>
@@ -73,6 +74,13 @@ export function Ledger() {
         Nothing above left this tab by network:{' '}
         <code>connect-src &apos;none&apos;</code>.
       </p>
+
+      {calls > state.egress.length ? (
+        <p className="ledgerWindow" data-testid="ledger-window">
+          Showing the most recent {state.egress.length.toLocaleString()} of{' '}
+          {calls.toLocaleString()} calls. The totals above count all of them.
+        </p>
+      ) : null}
 
       {state.egress.length === 0 ? (
         <p className="railEmpty">No agent has called a tool yet.</p>

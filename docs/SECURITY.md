@@ -111,10 +111,16 @@ does the same through `document.modelContext` from page context.
 
 ---
 
-## Control 5 — no answer is computed from fewer than k records
+## Control 5 — no single answer is computed from fewer than k records
 
 `minGroupSize` is the k-anonymity threshold, and it **ships at 5 rather than
-off**. A privacy control that starts disabled protects the sessions nobody has;
+off**. Below the *Raw* trust level it is also **floored at 2** however low the
+person sets it: "Aggregates" promises never to compute an answer from a single
+record, and at a threshold of 1 that promise was false — grouping by every
+column returned complete verbatim rows while the ledger recorded an ordinary
+read that had released nothing. Two controls contradicted each other, and the
+coarser, more visible one now wins. `list_datasets` reports both the floor in
+force and the number the person asked for. A privacy control that starts disabled protects the sessions nobody has;
 this one is in force in the state every first-time visitor and every judge
 meets, and the sample dataset is built for it — four regions of exactly five
 rows, so grouping by region is answered and grouping by individual sales rep is
@@ -256,9 +262,34 @@ Stated plainly.
 
 - **Aggregates reach the model.** The file does not; the answers do. The ledger
   exists so this is visible rather than trusted.
-- **Repeated narrow queries leak more than one broad one.** The caps, the
-  k-anonymity threshold and the visible ledger raise the cost and make probing
-  observable. They do not make it impossible.
+- **A determined agent can reconstruct the column, and k does not stop it.**
+  This is the most important limitation in this document, and it is a property
+  of exact aggregate release rather than a bug we have left in.
+
+  Our own red team did it: pick two subsets of the file that are the same size,
+  differing by one row. Each is comfortably above the threshold at both ends,
+  so each is answered. The difference between the two sums is that one row's
+  value. Repeat, and the column falls out.
+
+  > **20 of 20 exact values from the sample in 21 permitted calls, zero
+  > refusals. 300 of 300 salaries from a 300-row file at a threshold of 25.**
+
+  Raising k does not help: the two subsets are always the same size, so the
+  threshold is structurally irrelevant. This is the Dinur–Nissim
+  reconstruction result, and every system that answers exact aggregates over
+  attacker-chosen subsets has it. The real defences are noise (differential
+  privacy) or a query budget that escalates to the human after a number of
+  calls. **Cleanroom currently has neither**, and its honest claim is
+  therefore narrower than "your data is safe from an adversarial agent":
+
+  - no *single* answer is computed from fewer than k records, or from all but
+    fewer than k;
+  - every call is itemised in a ledger the person can read;
+  - a reconstruction attack costs one call per record and is plainly visible
+    as a long run of near-identical queries.
+
+  The threshold and the ledger raise the cost and make probing observable.
+  They do not make it impossible.
 - **An approved `sample_rows` call really does release records.** That is the
   point of asking. The control is the human, and the ledger records it.
 - **A user can turn the dial to *Raw* and lower the group threshold.** They

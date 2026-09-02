@@ -51,6 +51,8 @@ export interface ColumnProfile {
   mean?: number
   medianValue?: number
   stdDev?: number
+  /** Set when the ordering statistics were withheld, explaining the reason. */
+  statisticsWithheld?: string
   /** Present only when the column is categorical enough to be safe to name. */
   topCategories?: TopCategory[]
   /** Set when categories were withheld, explaining the reason. */
@@ -92,14 +94,28 @@ export function profileColumn(
     invalid: column.invalidCount,
   }
 
-  // Ordering statistics are safe for numbers and dates, which are measurements.
-  // For text they would hand back a real cell value.
-  if ((column.type === 'number' || column.type === 'date') && numbers.length > 0) {
+  // Ordering statistics are safe for numbers and dates, which are measurements
+  // rather than identifiers — for text they would hand back a real cell value.
+  //
+  // "Measurement" stops being true when there are barely any of them. Two
+  // people with a bonus and four blanks makes min, max, mean and median those
+  // two people's numbers, and this path had no threshold at all: the person's
+  // dial governed query_dataset and nothing else.
+  const measurable =
+    (column.type === 'number' || column.type === 'date') &&
+    numbers.length >= minGroupSize
+
+  if (measurable) {
     profile.min = minOf(numbers)
     profile.max = maxOf(numbers)
+  } else if (
+    (column.type === 'number' || column.type === 'date') &&
+    numbers.length > 0
+  ) {
+    profile.statisticsWithheld = `Withheld: only ${numbers.length} value${numbers.length === 1 ? '' : 's'} in this column, fewer than the minimum group size of ${minGroupSize}.`
   }
 
-  if (column.type === 'number' && numbers.length > 0) {
+  if (column.type === 'number' && measurable) {
     const mean = numbers.reduce((total, value) => total + value, 0) / numbers.length
     profile.mean = round(mean, 4)
     profile.medianValue = round(median(numbers), 4)

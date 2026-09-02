@@ -183,7 +183,10 @@ test.describe('execution contract', () => {
 
     // Every group here holds one row, so the shipped threshold suppresses the
     // lot — correctly, and it would leave nothing to trim. This test is about
-    // the output budget, so the person turns the threshold off first.
+    // the output budget, so the person turns the threshold off first. That
+    // also needs the raw level: below it the threshold is floored at two,
+    // because "Aggregates" never computes an answer from a single record.
+    await setTrust(page, 'raw')
     await page.getByLabel('Minimum group size').fill('1')
 
     const result = await call(page, 'query_dataset', {

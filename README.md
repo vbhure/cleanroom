@@ -311,9 +311,16 @@ one that does less.
 - **Aggregates do reach the model.** The *file* never leaves your browser, but
   the answers derived from it do. That is the point of the ledger: so you can
   see exactly what left, rather than being asked to trust a claim.
-- **A determined agent could still probe.** Repeated narrow queries leak more
-  than one broad one. `minGroupSize`, the row and character caps, and the ledger
-  raise the cost and make it visible; they do not make it impossible.
+- **A determined agent can reconstruct a column, and the threshold does not
+  stop it.** Two same-sized subsets differing by one row are each answerable;
+  their difference is that row. Our red team recovered 20 of 20 values from the
+  sample in 21 permitted calls, and raising the threshold does not help because
+  the subsets stay the same size. This is the Dinur–Nissim reconstruction
+  result and it applies to every system that answers exact aggregates. The
+  honest claim is that no *single* answer comes from fewer than k records, that
+  every call is on the ledger, and that an attack of this shape is a visibly
+  long run of near-identical queries. Closing it properly needs noise or a
+  query budget; see [docs/SECURITY.md](./docs/SECURITY.md).
 - **Numeric bounds are real values.** `min`, `max` and `median` on a numeric
   column are by construction somebody's actual number. That is what a statistic
   on a numeric column is. They are refused outright on text columns, where the

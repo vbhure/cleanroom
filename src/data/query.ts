@@ -95,6 +95,16 @@ export interface QueryResult {
   suppressedGroups: number
   suppressedRows: number
   /**
+   * Columns where a numeric aggregate ignored blank cells.
+   *
+   * `avg`, `sum` and `median` divide by the cells that hold a number, while
+   * `count` counts rows. Both are right, and together they look wrong: a group
+   * of five with one blank reports a sum and an average that do not reconcile.
+   * Naming the column lets the tool layer explain it instead of leaving a
+   * reader to assume the engine is broken.
+   */
+  blanksSkipped: string[]
+  /**
    * True when `matchedRows` is itself identifying — fewer records than the
    * threshold, and not simply the whole file. The count is still reported here
    * because the person may see it; the tool layer decides whether to release
@@ -234,6 +244,7 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
   let suppressedGroups = 0
   let suppressedRows = 0
   const kept: GroupEntry[] = []
+  const blanksSkipped = new Set<string>()
 
   // A result computed from fewer than `minGroupSize` records describes those
   // records rather than a population, however the narrowing happened — by a
@@ -301,7 +312,9 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
 
   let rows: CellValue[][] = kept.map((group) => [
     ...group.key,
-    ...spec.aggregate.map((agg) => computeAggregate(dataset, group.rows, agg)),
+    ...spec.aggregate.map((agg) =>
+      computeAggregate(dataset, group.rows, agg, blanksSkipped),
+    ),
   ])
 
   // --- order ----------------------------------------------------------------
@@ -358,6 +371,7 @@ export function runQuery(dataset: Dataset, spec: QuerySpec): QueryOutcome {
       suppressedGroups,
       suppressedRows,
       matchedRowsIdentifying: identifies(matchingRows.length),
+      blanksSkipped: [...blanksSkipped].sort(),
     },
   }
 }
@@ -573,6 +587,7 @@ function computeAggregate(
   dataset: Dataset,
   rowIndexes: readonly number[],
   agg: Aggregation,
+  blanksSkipped: Set<string>,
 ): CellValue {
   if (agg.op === 'count') return rowIndexes.length
 
@@ -593,6 +608,10 @@ function computeAggregate(
     const value = column.values[index]
     if (typeof value === 'number') numbers.push(value)
   }
+
+  // A blank is not a zero, so it is skipped rather than counted — but the
+  // reader has to be told, or sum and avg appear to contradict each other.
+  if (numbers.length < rowIndexes.length) blanksSkipped.add(column.name)
 
   if (numbers.length === 0) return null
 

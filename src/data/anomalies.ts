@@ -18,6 +18,17 @@ import { findColumn } from './types'
 
 export type { Anomaly, AnomalyKind } from './anomalyTypes'
 
+/**
+ * How many records must sit behind a finding before it may quote a value.
+ *
+ * An outlier is by definition a small group, and the bounds this module
+ * reports are exact cell values. One person earning ten times the median is a
+ * finding worth surfacing; their exact salary is not. The threshold used never
+ * to reach this module at all, so the person's dial governed query_dataset and
+ * left detect_anomalies releasing individual numbers at the aggregates level.
+ */
+const DEFAULT_MIN_GROUP_SIZE = 1
+
 /** Columns missing more than this share of their values get flagged. */
 export const MISSING_RATE_THRESHOLD = 0.1
 
@@ -40,6 +51,8 @@ export interface DetectOptions {
   columns?: readonly string[]
   /** Restrict to these checks. Omit for all. */
   kinds?: readonly AnomalyKind[]
+  /** Findings computed from fewer records than this may not quote values. */
+  minGroupSize?: number
 }
 
 export type DetectOutcome =
@@ -50,6 +63,10 @@ export function detectAnomalies(
   dataset: Dataset,
   options: DetectOptions = {},
 ): DetectOutcome {
+  const minGroupSize = Math.max(
+    1,
+    Math.trunc(options.minGroupSize ?? DEFAULT_MIN_GROUP_SIZE),
+  )
   const available = dataset.columns.map((column) => column.name)
 
   if (options.columns && options.columns.length > 0) {
@@ -81,7 +98,7 @@ export function detectAnomalies(
       pushIf(anomalies, detectConstant(column, dataset.rowCount))
     }
     if (kinds.has('outliers') && column.type === 'number') {
-      pushIf(anomalies, detectOutliers(column))
+      pushIf(anomalies, detectOutliers(column, minGroupSize))
     }
     if (kinds.has('gaps') && column.type === 'date') {
       pushIf(anomalies, detectGaps(column))
@@ -162,7 +179,7 @@ function detectConstant(column: Column, rowCount: number): Anomaly | undefined {
   }
 }
 
-function detectOutliers(column: Column): Anomaly | undefined {
+function detectOutliers(column: Column, minGroupSize: number): Anomaly | undefined {
   const numbers: number[] = []
   for (const value of column.values) {
     if (typeof value === 'number') numbers.push(value)
@@ -208,8 +225,16 @@ function detectOutliers(column: Column): Anomaly | undefined {
       upperBound: roundTo(upper, 4),
       below,
       above,
-      ...(below > 0 ? { lowestOutlier: smallest } : {}),
-      ...(above > 0 ? { highestOutlier: largest } : {}),
+      // An outlier is a small group by construction, and these bounds are
+      // exact cell values. Naming the number when only one or two records sit
+      // behind it hands over that person's figure under the cover of a
+      // statistic — so above the threshold it is a finding, below it is a
+      // count and nothing more.
+      ...(below >= minGroupSize ? { lowestOutlier: smallest } : {}),
+      ...(above >= minGroupSize ? { highestOutlier: largest } : {}),
+      ...(below + above > 0 && (below < minGroupSize || above < minGroupSize)
+        ? { boundsWithheld: `Fewer than ${minGroupSize} records on at least one side, so the values are not named.` }
+        : {}),
     },
   }
 }

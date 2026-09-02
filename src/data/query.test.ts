@@ -564,6 +564,43 @@ describe('runQuery — the differencing attack', () => {
   })
 })
 
+describe('runQuery — aggregates that skip blanks say so', () => {
+  // The flagship README query returned three numbers that could not all be
+  // true: West sum=44600, avg=11150, count=5, and 44600/5 = 8920. avg divides
+  // by the cells that hold a number, count counts rows, and West has a blank.
+  // Both are defensible; the pair without an explanation is not, and
+  // sum/avg = 4.00 was also a free per-group count of the blanks.
+
+  it('reports which columns had blanks skipped', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        groupBy: ['region'],
+        aggregate: [
+          { op: 'sum', column: 'amount' },
+          { op: 'avg', column: 'amount' },
+          { op: 'count' },
+        ],
+        minGroupSize: 1,
+      }),
+    )
+
+    // Eve's row has no amount.
+    expect(result.blanksSkipped).toEqual(['amount'])
+  })
+
+  it('says nothing when every aggregated cell was populated', () => {
+    const result = expectOk(
+      runQuery(sales(), {
+        where: [{ column: 'region', op: 'eq', value: 'North' }],
+        aggregate: [{ op: 'avg', column: 'amount' }],
+        minGroupSize: 1,
+      }),
+    )
+
+    expect(result.blanksSkipped).toEqual([])
+  })
+})
+
 describe('runQuery — errors are actionable', () => {
   it('lists the real columns when one is misspelled', () => {
     const error = expectError(
