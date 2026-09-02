@@ -3,15 +3,33 @@
 [![CI](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml/badge.svg)](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**Give an AI agent real power over data it is never allowed to see.**
+**A capability firewall for AI agents.** Close a port and the agent's tool
+stops existing — not refused, unregistered.
 
-Cleanroom is a zero-backend analysis workspace built for the
-[WebMCP Challenge](https://webmcp.devpost.com/). You drop a CSV into the page;
-it is parsed and held **only in your browser tab**, on a page that cannot make
-a network request. The page then registers up to eleven
-[WebMCP](https://github.com/webmachinelearning/webmcp) tools so an AI agent can
-profile, query, chart and audit that data — while the file itself never leaves
-your device, and never reaches the agent.
+Every firewall works the same way: you do not ask the traffic politely to stay
+out, you close the port. Agent permission systems have not caught up — they let
+the tool exist and make it refuse, and a refusal is a conversation that can be
+argued with.
+
+Cleanroom is a zero-backend workspace built for the
+[WebMCP Challenge](https://webmcp.devpost.com/) that closes the port instead. A
+human-held **trust dial** decides which [WebMCP](https://github.com/webmachinelearning/webmcp)
+tools are *registered with the browser at all*; moving it unregisters them
+live, fires `toolchange`, and leaves an agent's previously-discovered handle
+dead:
+
+```
+NotFoundError: No tool named "sample_rows" is registered.
+```
+
+That message comes from the WebMCP implementation, not from us. **A firewall
+you cannot argue with, because there is nothing to argue with.**
+
+The worked example is a spreadsheet. You drop a CSV into the page; it is parsed
+and held **only in your browser tab**, on a page that cannot make a network
+request. Up to eleven tools let an AI agent profile, query, chart and audit
+that data — while the file itself never leaves your device, and never reaches
+the agent.
 
 The data cannot go to the agent, so the tools go to the data. And the tools are
 the privacy boundary: **you set a trust level, and the agent's menu changes in
