@@ -18,9 +18,9 @@ existing — not refused, unregistered.
 
 | Field | Value |
 | --- | --- |
-| Live URL | `«NETLIFY URL»` |
+| Live URL | https://frabjous-squirrel-07823a.netlify.app |
 | Repository | https://github.com/vbhure/cleanroom |
-| Video | `«YOUTUBE URL»` |
+| Video | https://youtu.be/egnjFYz8zsM |
 | License | MIT, at repository root |
 
 ---
@@ -156,7 +156,7 @@ the production build. Rather than weaken the policy we replaced Ajv with a
 hand-written validator covering exactly the schema subset the tools use.
 Cleanroom now has **no runtime dependencies beyond React**.
 
-**501 automated tests** — 433 unit and integration, 68 end-to-end. The E2E suite
+**529 automated tests** — 460 unit and integration, 69 end-to-end. The E2E suite
 drives `document.modelContext.getTools()` and `executeTool()` from page context
 without importing our source, so it verifies what an agent actually receives —
 including that a tool handle captured at *Raw* is dead once the dial comes down,
@@ -244,7 +244,7 @@ Capture at 1280×800, dark theme, using the sample dataset.
 | Solo entry permitted | ✅ | Official rules | — |
 | WebMCP-powered web app | ✅ | 11 tools on `document.modelContext`, registered and withdrawn by trust level; `src/tools/` | — |
 | Built during submission window (from 25 Aug 2026) | ✅ | 9 public commits, all dated 1 Sep 2026 | — |
-| Functions consistently on its platform | ✅ | 68 E2E tests, 13 of them across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
+| Functions consistently on its platform | ✅ | 69 E2E tests, 13 of them across 4 viewports; CI green on clean Ubuntu runner | Re-verify on live URL and in CI after the next push |
 | Public code repository | ✅ | https://github.com/vbhure/cleanroom — public, 9 commits | — |
 | Open-source license visible at repo root | ✅ | `LICENSE` (MIT); GitHub API reports `spdx_id: MIT` | — |
 | Complete source + run instructions | ✅ | README: install, verify, build, deploy; CI proves a clean clone builds and passes | — |

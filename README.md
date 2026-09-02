@@ -3,6 +3,8 @@
 [![CI](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml/badge.svg)](https://github.com/vbhure/cleanroom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
+**[Live demo](https://frabjous-squirrel-07823a.netlify.app)** · **[Two-minute video](https://youtu.be/egnjFYz8zsM)** · **[Threat model](./docs/SECURITY.md)**
+
 **A capability firewall for AI agents.** Close a port and the agent's tool
 stops existing — not refused, unregistered.
 
@@ -224,9 +226,9 @@ npm run dev          # http://localhost:5173
 
 ```bash
 npm run verify       # lint + typecheck + unit tests + production build
-npm run test         # 433 unit and integration tests (Vitest)
+npm run test         # 460 unit and integration tests (Vitest)
 npm run test:coverage
-npm run e2e          # 68 end-to-end tests against the production build
+npm run e2e          # 69 end-to-end tests against the production build
 ```
 
 `npm run e2e` needs browsers once: `npx playwright install chromium`.
