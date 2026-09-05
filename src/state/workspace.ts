@@ -97,6 +97,17 @@ export interface EgressEntry {
   truncated: boolean
 }
 
+/**
+ * What approving actually does.
+ *
+ * The dialog used to warn, on every gated action, that whatever follows
+ * "leaves your browser and reaches the agent". That is true of `sample_rows`
+ * and false of `clear_workspace`, which destroys local data and releases
+ * nothing — a false statement inside the one dialog whose whole job is to be
+ * trusted. The requester names the consequence so the warning can match it.
+ */
+export type ApprovalConsequence = 'release' | 'destroy'
+
 export interface ApprovalRequest {
   id: string
   tool: string
@@ -104,6 +115,7 @@ export interface ApprovalRequest {
   question: string
   detail?: Record<string, unknown>
   risk: RiskClass
+  consequence: ApprovalConsequence
 }
 
 export interface WorkspaceState {

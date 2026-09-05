@@ -1313,7 +1313,12 @@ describe('the approval gate under pressure', () => {
     workspace.setTrustLevel('raw')
 
     const decision = workspace.requestApproval(
-      { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+      {
+        tool: 'sample_rows',
+        risk: 'gated',
+        consequence: 'release',
+        question: 'Release rows?',
+      },
       { timeoutMs: 10 },
     )
 
@@ -1325,11 +1330,13 @@ describe('the approval gate under pressure', () => {
     const first = workspace.requestApproval({
       tool: 'sample_rows',
       risk: 'gated',
+      consequence: 'release',
       question: 'First?',
     })
     const second = workspace.requestApproval({
       tool: 'clear_workspace',
       risk: 'gated',
+      consequence: 'destroy',
       question: 'Second?',
     })
 
@@ -1344,7 +1351,12 @@ describe('the approval gate under pressure', () => {
   it('denies when the agent aborts the call it was waiting on', async () => {
     const controller = new AbortController()
     const decision = workspace.requestApproval(
-      { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+      {
+        tool: 'sample_rows',
+        risk: 'gated',
+        consequence: 'release',
+        question: 'Release rows?',
+      },
       { signal: controller.signal },
     )
 
@@ -1364,7 +1376,12 @@ describe('the approval gate under pressure', () => {
 
     await expect(
       workspace.requestApproval(
-        { tool: 'sample_rows', risk: 'gated', question: 'Release rows?' },
+        {
+        tool: 'sample_rows',
+        risk: 'gated',
+        consequence: 'release',
+        question: 'Release rows?',
+      },
         { signal: controller.signal },
       ),
     ).resolves.toBe(false)
@@ -1635,5 +1652,134 @@ describe('createId', () => {
   it('produces unique ids', () => {
     const ids = new Set(Array.from({ length: 500 }, () => createId('x')))
     expect(ids.size).toBe(500)
+  })
+})
+
+describe('a dataset the tab could not hold whole', () => {
+  /**
+   * Stands in for a file that overran MAX_ROWS. The rows present are what was
+   * loaded; the file held more. Building a real 100,000-row fixture here would
+   * cost seconds on every run and prove nothing extra — the truncation itself
+   * is asserted against the real parser in data/dataset.test.ts.
+   */
+  function loadTruncated() {
+    const dataset = buildDataset({ name: 'sales.csv', text: SALES })
+    const truncated = { ...dataset, sourceRowCount: dataset.rowCount + 40 }
+    workspace.addDataset(truncated)
+    return truncated
+  }
+
+  function notice(outcome: { payload: unknown }) {
+    return payload(outcome).datasetTruncated as
+      | { fileRows: number; loadedRows: number; note: string }
+      | undefined
+  }
+
+  it('tells the agent, in list_datasets, that the rows are not the whole file', async () => {
+    const dataset = loadTruncated()
+
+    const result = await call('list_datasets')
+    const [entry] = payload(result).datasets as Record<string, unknown>[]
+    if (!entry) throw new Error('expected the dataset to be listed')
+    const truncation = entry.datasetTruncated as {
+      fileRows: number
+      loadedRows: number
+      note: string
+    }
+
+    expect(entry.rows).toBe(dataset.rowCount)
+    expect(truncation.loadedRows).toBe(dataset.rowCount)
+    expect(truncation.fileRows).toBe(dataset.rowCount + 40)
+    expect(truncation.note).toMatch(/only the first/i)
+  })
+
+  it('says nothing at all when the file was loaded whole', async () => {
+    loadSales()
+
+    const listed = await call('list_datasets')
+    const [entry] = payload(listed).datasets as Record<string, unknown>[]
+    expect(entry).toBeDefined()
+    expect(entry).not.toHaveProperty('datasetTruncated')
+
+    openThreshold()
+    const queried = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'sum', column: 'amount' }],
+    })
+    expect(notice(queried)).toBeUndefined()
+  })
+
+  it('repeats the warning on the answers an agent would total up', async () => {
+    loadTruncated()
+    openThreshold()
+
+    // The dangerous case is an agent that never calls list_datasets and reads
+    // a sum as the figure for the whole file.
+    const queried = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'sum', column: 'amount' }],
+    })
+    expect(notice(queried)?.fileRows).toBe(46)
+
+    const profiled = await call('describe_columns', { dataset: 'sales' })
+    expect(notice(profiled)?.fileRows).toBe(46)
+
+    const checked = await call('detect_anomalies', { dataset: 'sales' })
+    expect(notice(checked)?.fileRows).toBe(46)
+  })
+
+  it('does not collide with the limit-based truncation flag', async () => {
+    loadTruncated()
+    openThreshold()
+
+    const result = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['region'],
+      aggregate: [{ op: 'count' }],
+      limit: 1,
+    })
+
+    // `truncated` means "limit hid some groups"; `datasetTruncated` means "the
+    // file was bigger than the tab would hold". They are different facts and
+    // both can be true at once.
+    expect(payload(result).truncated).toBe(true)
+    expect(notice(result)?.loadedRows).toBe(6)
+  })
+
+  it('is a constant, so it cannot be used to count anything', async () => {
+    loadTruncated()
+    openThreshold()
+
+    const broad = await call('query_dataset', {
+      dataset: 'sales',
+      aggregate: [{ op: 'count' }],
+    })
+    const narrow = await call('query_dataset', {
+      dataset: 'sales',
+      where: [{ column: 'region', op: 'eq', value: 'North' }],
+      aggregate: [{ op: 'count' }],
+    })
+
+    // The disclosure describes the file, not the rows a predicate matched, so
+    // varying the filter must not move it by a single digit.
+    expect(notice(narrow)).toEqual(notice(broad))
+  })
+
+  it('still suppresses small groups on a truncated dataset', async () => {
+    loadTruncated()
+
+    // Shipped default threshold, untouched by truncation.
+    const result = await call('query_dataset', {
+      dataset: 'sales',
+      groupBy: ['rep'],
+      aggregate: [{ op: 'sum', column: 'amount' }],
+    })
+
+    expect(payload(result).rows).toEqual([])
+    expect(payload(result).totalGroups).toBe(0)
+    // And the disclosure rides along without weakening any of that.
+    expect(notice(result)?.fileRows).toBe(46)
   })
 })

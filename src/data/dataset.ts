@@ -53,6 +53,7 @@ export function buildDataset({
   const warnings = [...parsed.warnings]
 
   let rows = parsed.rows
+  const sourceRowCount = rows.length
   if (rows.length > MAX_ROWS) {
     warnings.push(
       `The file has ${rows.length.toLocaleString()} rows. Only the first ${MAX_ROWS.toLocaleString()} were loaded to keep the page responsive.`,
@@ -80,6 +81,7 @@ export function buildDataset({
     id: uniqueDatasetId(toDatasetId(name), existingIds),
     name,
     rowCount: rows.length,
+    sourceRowCount,
     columns,
     sourceBytes: new Blob([text]).size,
     loadedAt: Date.now(),

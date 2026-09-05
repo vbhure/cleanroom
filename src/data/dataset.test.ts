@@ -107,4 +107,26 @@ describe('buildDataset', () => {
     expect(dataset.rowCount).toBe(MAX_ROWS)
     expect(dataset.warnings.join(' ')).toMatch(/only the first/i)
   })
+
+  it('remembers how many rows the file held, so truncation stays knowable', () => {
+    const lines = ['id']
+    for (let i = 0; i < MAX_ROWS + 50; i += 1) lines.push(String(i))
+
+    const dataset = buildDataset({ name: 'big.csv', text: lines.join('\n') })
+
+    // The loaded rows are the ones every answer is computed from; the source
+    // count is what stops those answers being read as the whole file.
+    expect(dataset.rowCount).toBe(MAX_ROWS)
+    expect(dataset.sourceRowCount).toBe(MAX_ROWS + 50)
+  })
+
+  it('reports an untruncated file as holding exactly what was loaded', () => {
+    const dataset = buildDataset({
+      name: 'small.csv',
+      text: 'id\n1\n2\n3',
+    })
+
+    expect(dataset.rowCount).toBe(3)
+    expect(dataset.sourceRowCount).toBe(3)
+  })
 })

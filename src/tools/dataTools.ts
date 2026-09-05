@@ -121,6 +121,34 @@ export function resolveDataset(
   return { ok: true, dataset }
 }
 
+/**
+ * Says, wherever an agent asks anything about a dataset, that the rows behind
+ * the answer are not the whole file.
+ *
+ * Only loaded rows are ever computed over. Without this a sum across 100,000
+ * of a file's 120,000 rows is indistinguishable from the real total, and the
+ * agent reports a partial figure as a complete one. The human already sees
+ * this in the sidebar; the agent had no equivalent.
+ *
+ * Discloses nothing that `rowCount` does not already: a file-level count that
+ * is constant for the dataset and does not move with any filter the agent
+ * chooses, so it cannot be used to count the records matching a predicate.
+ * Spread into a payload — contributes nothing when the file was loaded whole.
+ */
+export function truncationNotice(dataset: Dataset): {
+  datasetTruncated?: { fileRows: number; loadedRows: number; note: string }
+} {
+  if (dataset.sourceRowCount <= dataset.rowCount) return {}
+
+  return {
+    datasetTruncated: {
+      fileRows: dataset.sourceRowCount,
+      loadedRows: dataset.rowCount,
+      note: `The file holds ${dataset.sourceRowCount} rows; only the first ${dataset.rowCount} were loaded to keep the page responsive. Every answer about "${dataset.id}" covers those loaded rows only — do not report them as figures for the whole file.`,
+    },
+  }
+}
+
 const hasDataset = (state: WorkspaceState) => state.datasets.length > 0
 
 /**
@@ -157,6 +185,7 @@ export const listDatasets: ToolSpec = {
           id: dataset.id,
           name: dataset.name,
           rows: dataset.rowCount,
+          ...truncationNotice(dataset),
           columns: dataset.columns.map((column) => ({
             name: column.name,
             type: column.type,
@@ -228,7 +257,11 @@ export const describeColumns: ToolSpec = {
     }
 
     return {
-      payload: { dataset: resolved.dataset.id, profiles: outcome.profiles },
+      payload: {
+        dataset: resolved.dataset.id,
+        ...truncationNotice(resolved.dataset),
+        profiles: outcome.profiles,
+      },
       summary: `Profiled ${outcome.profiles.length} column${outcome.profiles.length === 1 ? '' : 's'} of "${resolved.dataset.id}" (aggregates only).`,
     }
   },
@@ -332,6 +365,9 @@ export const queryDataset: ToolSpec = {
             }
           : {}),
         ...(result.truncated ? { truncated: true } : {}),
+        // Distinct from `truncated` above, which means `limit` hid some groups.
+        // This one means the file itself was larger than the tab would hold.
+        ...truncationNotice(resolved.dataset),
         // Not conditional, and that is the point. Masking the counts left the
         // KEY: whether `suppressed` appeared was one bit about the data —
         // "something here is below the threshold" — and one bit per query is
@@ -400,6 +436,7 @@ export const detectAnomaliesTool: ToolSpec = {
     return {
       payload: {
         dataset: resolved.dataset.id,
+        ...truncationNotice(resolved.dataset),
         anomalies: outcome.anomalies,
         checked: input.kinds ?? ALL_ANOMALY_KINDS,
       },
@@ -489,6 +526,7 @@ export const sampleRows: ToolSpec = {
       {
         tool: 'sample_rows',
         risk: 'gated',
+        consequence: 'release',
         question: `Release ${rowCount} raw row${rowCount === 1 ? '' : 's'} of "${dataset.name}" (${columns.length} column${columns.length === 1 ? '' : 's'}) to the agent?`,
         detail: {
           reason: String(input.reason),

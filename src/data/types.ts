@@ -37,8 +37,16 @@ export interface Dataset {
   id: string
   /** Original file name, shown to the human. */
   name: string
+  /** Rows actually loaded. Every answer in Cleanroom is computed from these. */
   rowCount: number
   columns: Column[]
+  /**
+   * Rows the source file held, which is `rowCount` unless MAX_ROWS forced a
+   * truncation. Kept so the tool layer can tell an agent that the rows it is
+   * reasoning about are not the whole file — otherwise a total over 100,000 of
+   * 120,000 rows reads as the complete answer.
+   */
+  sourceRowCount: number
   /** Size of the source text in bytes, for the human's reference only. */
   sourceBytes: number
   loadedAt: number

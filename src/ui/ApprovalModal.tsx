@@ -124,9 +124,10 @@ export function ApprovalModal() {
           </p>
         ) : null}
 
-        <p className="modalWarning">
-          Anything released here leaves your browser and reaches the agent. This
-          is the only way individual records can do so.
+        <p className="modalWarning" data-testid="approval-warning">
+          {pendingApproval.consequence === 'destroy'
+            ? 'This permanently discards the data and report blocks held in this tab. Nothing is sent to the agent, and nothing here can be recovered.'
+            : 'Anything released here leaves your browser and reaches the agent. This is the only way individual records can do so.'}
         </p>
 
         <div className="modalActions">

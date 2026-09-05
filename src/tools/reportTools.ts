@@ -431,6 +431,7 @@ export const clearWorkspace: ToolSpec = {
       {
         tool: 'clear_workspace',
         risk: 'gated',
+        consequence: 'destroy',
         question: `Discard ${state.datasets.length} dataset${state.datasets.length === 1 ? '' : 's'} and ${state.blocks.length} report block${state.blocks.length === 1 ? '' : 's'}? This cannot be undone.`,
         detail: {
           datasets: state.datasets.map((dataset) => dataset.name),
